@@ -1,0 +1,16 @@
+{
+  "name": "obsidian-node-daemon",
+  "version": "1.0.0",
+  "description": "Local API Daemon for ObsidianNode Minecraft Control Dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "localtunnel": "^2.0.2",
+    "pidusage": "^3.0.2",
+    "ws": "^8.17.0"
+  }
+}
