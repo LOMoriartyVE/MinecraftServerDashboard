@@ -49,7 +49,11 @@ export default function Dashboard() {
     if (savedUrl) setDaemonUrl(savedUrl);
     
     const savedMode = localStorage.getItem('obsidian_connection_mode');
-    if (savedMode) setConnectionMode(savedMode);
+    if (savedMode) {
+      setConnectionMode(savedMode);
+    } else if (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')) {
+      setConnectionMode('proxy');
+    }
   }, []);
 
   // Show toast notification

@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 
 async function handleProxy(req) {
-  const targetUrl = req.headers.get('x-target-url');
+  const targetUrl = req.headers.get('x-target-url') || process.env.NEXT_PUBLIC_DAEMON_URL;
   if (!targetUrl) {
-    return NextResponse.json({ error: 'Missing x-target-url header' }, { status: 400 });
+    return NextResponse.json({ error: 'Missing daemon URL. Please configure NEXT_PUBLIC_DAEMON_URL in Vercel or Settings.' }, { status: 400 });
   }
 
   // Parse path and query parameters from the request
@@ -21,6 +21,7 @@ async function handleProxy(req) {
   
   // Forward essential headers
   headers.set('Content-Type', 'application/json');
+  headers.set('bypass-tunnel-reminder', 'true');
   
   let body = null;
   if (method !== 'GET' && method !== 'HEAD') {
