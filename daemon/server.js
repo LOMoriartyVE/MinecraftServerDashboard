@@ -570,30 +570,39 @@ getFreePort(DEFAULT_PORT, (freePort) => {
     });
 
     async function setupTunnel(targetPort) {
+        // 1. Launch Localtunnel
         try {
             console.log("Spawning HTTPS Localtunnel...");
-            // Use FIXED SUBDOMAIN based on computer name so URL never changes
             const tunnel = await localtunnel({ port: targetPort, subdomain: FIXED_SUBDOMAIN });
             console.log(`\n=================================================`);
-            console.log(`>>> PERMANENT FIXED HTTPS TUNNEL ACTIVE! <<<`);
-            console.log(`>>> Connect your dashboard to:`);
-            console.log(`>>> ${tunnel.url}`);
+            console.log(`>>> LOCALTUNNEL ACTIVE: ${tunnel.url}`);
             console.log(`=================================================\n`);
             
             tunnel.on('close', () => {
-                console.log("Localtunnel closed. Re-establishing permanent tunnel in 3 seconds...");
-                setTimeout(() => setupTunnel(targetPort), 3000);
-            });
-            tunnel.on('error', (err) => {
-                console.log("Localtunnel notice:", err.message);
+                setTimeout(() => setupTunnel(targetPort), 5000);
             });
         } catch (err) {
-            console.error("Localtunnel fallback (subdomain taken or error):", err.message);
-            // Fallback without fixed subdomain if taken
-            try {
-                const altTunnel = await localtunnel({ port: targetPort });
-                console.log(`>>> Fallback Tunnel URL: ${altTunnel.url}\n`);
-            } catch (e) {}
+            console.log("Localtunnel notice:", err.message);
+        }
+
+        // 2. Launch Serveo SSH Tunnel (100% clean, no warning pages for mobile & Vercel)
+        try {
+            console.log("Spawning Clean Mobile/Vercel SSH Serveo Tunnel...");
+            const ssh = spawn('ssh', ['-o', 'StrictHostKeyChecking=no', '-R', `80:localhost:${targetPort}`, 'serveo.net']);
+            ssh.stdout.on('data', (data) => {
+                const text = data.toString();
+                if (text.includes('Forwarding HTTP traffic from')) {
+                    const match = text.match(/https:\/\/[a-zA-Z0-9-]+\.serveo\.net/);
+                    if (match) {
+                        console.log(`=================================================`);
+                        console.log(`>>> MOBILE & VERCEL CLEAN TUNNEL (NO WARNING PAGES): <<<`);
+                        console.log(`>>> ${match[0]}`);
+                        console.log(`=================================================\n`);
+                    }
+                }
+            });
+        } catch (e) {
+            console.log("Serveo SSH notice:", e.message);
         }
     }
 
