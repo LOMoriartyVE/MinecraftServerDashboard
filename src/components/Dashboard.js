@@ -18,7 +18,7 @@ import Settings from './Settings';
 export default function Dashboard() {
   // Navigation & Settings State
   const [activeTab, setActiveTab] = useState('overview');
-  const [daemonUrl, setDaemonUrl] = useState('http://localhost:3001');
+  const [daemonUrl, setDaemonUrl] = useState(process.env.NEXT_PUBLIC_DAEMON_URL || 'http://localhost:3001');
   const [connectionMode, setConnectionMode] = useState('direct'); // 'direct' or 'proxy'
   const [isConnected, setIsConnected] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
