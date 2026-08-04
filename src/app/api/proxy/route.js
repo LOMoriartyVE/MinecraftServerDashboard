@@ -21,7 +21,9 @@ async function handleProxy(req) {
   
   // Forward essential headers
   headers.set('Content-Type', 'application/json');
+  headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
   headers.set('bypass-tunnel-reminder', 'true');
+  headers.set('Bypass-Tunnel-Reminder', 'true');
   
   let body = null;
   if (method !== 'GET' && method !== 'HEAD') {
@@ -41,16 +43,15 @@ async function handleProxy(req) {
     });
 
     const contentType = response.headers.get('content-type');
-    let responseData;
     if (contentType && contentType.includes('application/json')) {
-      responseData = await response.json();
+      const responseData = await response.json();
       return NextResponse.json(responseData, { status: response.status });
     } else {
-      responseData = await response.text();
-      return new NextResponse(responseData, {
-        status: response.status,
-        headers: { 'Content-Type': contentType || 'text/plain' }
-      });
+      const text = await response.text();
+      return NextResponse.json({ 
+        error: 'Target daemon endpoint returned non-JSON response (possibly tunnel landing page or offline)', 
+        status: response.status 
+      }, { status: 502 });
     }
   } catch (error) {
     return NextResponse.json({ error: 'Failed to proxy request', details: error.message }, { status: 502 });
