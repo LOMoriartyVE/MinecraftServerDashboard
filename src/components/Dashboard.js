@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Box, Terminal, Users, Puzzle, FolderTree, HardDriveDownload, 
   Sliders, ChevronDown, PlusCircle, Cpu, LogOut, CheckCircle, 
-  AlertTriangle, AlertOctagon, Info, Bell, Power
+  AlertTriangle, AlertOctagon, Info, Bell, Power, Menu, X, RefreshCw
 } from 'lucide-react';
 
 import Overview from './Overview';
@@ -27,6 +27,7 @@ export default function Dashboard() {
   const [servers, setServers] = useState([]);
   const [selectedServerId, setSelectedServerId] = useState('');
   const [activeServer, setActiveServer] = useState(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   // Telemetry & Console Logs
   const [telemetry, setTelemetry] = useState(null);
@@ -445,14 +446,26 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden text-slate-200">
+    <div className="flex h-screen overflow-hidden text-slate-200 bg-obsidian-950 font-sans">
       
-      {/* SIDEBAR NAVIGATION */}
-      <aside className="w-64 bg-obsidian-900 border-r border-obsidian-700 flex flex-col z-20 shrink-0">
+      {/* MOBILE BACKDROP OVERLAY */}
+      {isMobileMenuOpen && (
+        <div 
+          onClick={() => setIsMobileMenuOpen(false)}
+          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm md:hidden transition-opacity"
+        />
+      )}
+
+      {/* SIDEBAR NAVIGATION (Desktop + Mobile Off-Canvas Drawer) */}
+      <aside className={`
+        fixed inset-y-0 left-0 z-50 w-72 md:w-64 bg-obsidian-900 border-r border-obsidian-700 flex flex-col shrink-0
+        transform transition-transform duration-300 ease-in-out md:translate-x-0 md:static
+        ${isMobileMenuOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'}
+      `}>
         
-        {/* Brand & Server Switcher */}
-        <div className="p-4 border-b border-obsidian-700">
-          <div className="flex items-center gap-3 mb-4">
+        {/* Mobile Close Button & Brand Header */}
+        <div className="p-4 border-b border-obsidian-700 flex items-center justify-between">
+          <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-mcgreen-500 to-emerald-700 flex items-center justify-center shadow-lg shadow-mcgreen-500/20">
               <Box className="w-6 h-6 text-obsidian-950 stroke-[2.5]" />
             </div>
@@ -463,8 +476,16 @@ export default function Dashboard() {
               <span className="text-[11px] font-mono text-slate-400">Panel v3.4.0-RELEASE</span>
             </div>
           </div>
+          <button 
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-obsidian-800"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
 
-          {/* Active Server Selector */}
+        {/* Active Server Selector */}
+        <div className="p-3 border-b border-obsidian-700/60">
           <div className="relative">
             <button 
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
@@ -497,6 +518,7 @@ export default function Dashboard() {
                     onClick={() => {
                       setSelectedServerId(server.id);
                       setIsDropdownOpen(false);
+                      setIsMobileMenuOpen(false);
                       showToast(`Switched active context to ${server.name}`, 'info');
                     }}
                     className="w-full text-left px-3 py-2 text-xs hover:bg-obsidian-700 flex items-center justify-between text-slate-300 hover:text-white font-medium"
@@ -544,7 +566,10 @@ export default function Dashboard() {
             return (
               <button 
                 key={nav.id}
-                onClick={() => setActiveTab(nav.id)}
+                onClick={() => {
+                  setActiveTab(nav.id);
+                  setIsMobileMenuOpen(false);
+                }}
                 className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs transition-all ${
                   isActive 
                     ? 'bg-mcgreen-500/10 text-mcgreen-400 border border-mcgreen-500/30 font-semibold' 
@@ -620,31 +645,31 @@ export default function Dashboard() {
               <p className="text-[10px] text-mcgreen-400 font-mono">Node Administrator</p>
             </div>
           </div>
-          <button 
-            onClick={() => showToast('Session logged out (Simulation)', 'info')} 
-            className="text-slate-400 hover:text-rose-400 transition-colors p-1.5 rounded-lg hover:bg-obsidian-800"
-            title="Sign Out"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
         </div>
       </aside>
 
       {/* MAIN CONTAINER */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden bg-obsidian-950">
+      <main className="flex-1 flex flex-col h-screen overflow-hidden bg-obsidian-950 min-w-0">
         
         {/* HEADER BAR */}
-        <header className="h-16 bg-obsidian-900 border-b border-obsidian-700 px-6 flex items-center justify-between shrink-0 font-sans">
+        <header className="py-2.5 px-3 md:px-6 bg-obsidian-900 border-b border-obsidian-700 flex flex-wrap items-center justify-between gap-2 shrink-0 font-sans">
           
-          {/* Active Server Power & Title Status */}
-          <div className="flex items-center gap-4">
-            <div>
+          <div className="flex items-center gap-2.5 min-w-0">
+            {/* Hamburger Button for Mobile */}
+            <button 
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="md:hidden p-2 rounded-lg bg-obsidian-850 hover:bg-obsidian-800 border border-obsidian-700 text-slate-300"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-white tracking-tight">
+                <h2 className="text-sm md:text-base font-bold text-white tracking-tight truncate">
                   {activeServerInfo?.name || 'Select Server Slot'}
                 </h2>
                 {activeServerInfo && (
-                  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${
                     activeServerInfo.status === 'online' ? 'bg-mcgreen-500/15 text-mcgreen-400 border-mcgreen-500/30' :
                     activeServerInfo.status === 'starting' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' :
                     activeServerInfo.status === 'stopping' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' :
@@ -658,53 +683,40 @@ export default function Dashboard() {
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-slate-400 flex items-center gap-2 mt-0.5">
-                <span className="font-mono text-slate-300">
-                  Address: {activeServerInfo ? `mutant-shaving.tun.ply.gg:${activeServerInfo.port}` : 'None'}
-                </span>
-                {activeServerInfo?.status === 'online' && telemetry && (
-                  <>
-                    <span>•</span>
-                    <span>Uptime: <strong className="text-slate-200 font-mono">
-                      {Math.floor(telemetry.uptimeSeconds / 3600)}h {Math.floor((telemetry.uptimeSeconds % 3600) / 60)}m {telemetry.uptimeSeconds % 60}s
-                    </strong></span>
-                  </>
-                )}
-              </p>
             </div>
           </div>
 
           {/* Quick Power Actions Hub */}
           {isConnected && activeServerInfo && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <button 
                 onClick={() => sendPowerAction('start')}
                 disabled={activeServerInfo.status !== 'offline'}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all ${
                   activeServerInfo.status === 'offline' 
                     ? 'bg-mcgreen-500 text-obsidian-950 hover:bg-mcgreen-600 shadow-md shadow-mcgreen-500/20 active:scale-95' 
                     : 'bg-obsidian-800 text-slate-500 cursor-not-allowed border border-obsidian-700'
                 }`}
               >
-                <Power className="w-3.5 h-3.5" /> Start
+                <Power className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Start</span>
               </button>
               
               <button 
                 onClick={() => sendPowerAction('restart')}
                 disabled={activeServerInfo.status === 'offline'}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all ${
                   activeServerInfo.status !== 'offline' 
                     ? 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 active:scale-95' 
                     : 'bg-obsidian-800 text-slate-500 cursor-not-allowed border border-obsidian-700'
                 }`}
               >
-                Restart
+                <RefreshCw className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Restart</span>
               </button>
 
               <button 
                 onClick={() => sendPowerAction('stop')}
                 disabled={activeServerInfo.status === 'offline' || activeServerInfo.status === 'stopping'}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all ${
                   activeServerInfo.status !== 'offline' && activeServerInfo.status !== 'stopping'
                     ? 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 active:scale-95' 
                     : 'bg-obsidian-800 text-slate-500 cursor-not-allowed border border-obsidian-700'
@@ -712,91 +724,42 @@ export default function Dashboard() {
               >
                 Stop
               </button>
-
-              <button 
-                onClick={() => {
-                  if (confirm('Are you sure you want to kill the server process? Unsaved data may be lost.')) {
-                    sendPowerAction('kill');
-                  }
-                }}
-                disabled={activeServerInfo.status === 'offline'}
-                className={`p-2 rounded-lg transition-all ${
-                  activeServerInfo.status !== 'offline'
-                    ? 'text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30'
-                    : 'text-slate-600 cursor-not-allowed'
-                }`}
-                title="Force Kill Process"
-              >
-                Kill
-              </button>
-
-              <div className="h-6 w-px bg-obsidian-700 mx-1" />
-
-              {/* Notifications */}
-              <div className="relative">
-                <button 
-                  onClick={() => setShowNotifications(!showNotifications)}
-                  className="p-2 rounded-lg bg-obsidian-850 hover:bg-obsidian-800 border border-obsidian-700 text-slate-300 hover:text-white relative transition-all"
-                >
-                  <Bell className="w-4 h-4" />
-                  {notifications.length > 0 && (
-                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-mcgreen-500 rounded-full ring-2 ring-obsidian-900" />
-                  )}
-                </button>
-
-                {/* Notifications Drawer */}
-                {showNotifications && (
-                  <div className="absolute right-0 top-full mt-2 w-80 bg-obsidian-850 border border-obsidian-700 rounded-xl shadow-2xl z-50 p-3 space-y-2">
-                    <div className="flex justify-between items-center pb-2 border-b border-obsidian-700">
-                      <span className="text-xs font-bold text-white">Notifications</span>
-                      <button onClick={() => setNotifications([])} className="text-[10px] text-mcgreen-400 hover:underline">Clear all</button>
-                    </div>
-                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                      {notifications.map(n => (
-                        <div key={n.id} className="p-2 bg-obsidian-800/60 rounded-lg text-xs border border-obsidian-700">
-                          <div className="flex items-center justify-between text-mcgreen-400 font-semibold mb-0.5">
-                            <span className="flex items-center gap-1">{n.title}</span>
-                            <span className="text-[10px] text-slate-400 font-mono">{n.time}</span>
-                          </div>
-                          <p className="text-slate-300 text-[11px]">{n.desc}</p>
-                        </div>
-                      ))}
-                      {notifications.length === 0 && (
-                        <p className="text-xs text-slate-500 text-center py-2">No pending notifications</p>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-
             </div>
           )}
         </header>
 
-        {/* SUBPAGE CONTENT AREA */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        {/* SUBPAGE VIEW */}
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6 pb-24 md:pb-6">
           {renderSubpage()}
         </div>
 
+        {/* MOBILE QUICK NAVIGATION BOTTOM BAR */}
+        <nav className="fixed bottom-0 left-0 right-0 z-30 md:hidden bg-obsidian-900/95 backdrop-blur-md border-t border-obsidian-700/80 px-2 py-2 flex justify-around items-center">
+          {[
+            { id: 'overview', label: 'Overview', icon: Box },
+            { id: 'console', label: 'Console', icon: Terminal },
+            { id: 'players', label: 'Players', icon: Users },
+            { id: 'plugins', label: 'Mods', icon: Puzzle },
+            { id: 'files', label: 'Files', icon: FolderTree },
+            { id: 'settings', label: 'Settings', icon: Sliders }
+          ].map(item => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
+            return (
+              <button 
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg text-[10px] transition-all ${
+                  isActive ? 'text-mcgreen-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
       </main>
-
-      {/* TOAST CONTAINER */}
-      {toast.visible && (
-        <div className="fixed bottom-6 right-6 z-50 pointer-events-none">
-          <div className={`pointer-events-auto px-4 py-3 rounded-xl border shadow-2xl flex items-center gap-2.5 text-xs font-semibold backdrop-blur-md transition-all duration-300 transform translate-y-0 ${
-            toast.type === 'success' ? 'border-mcgreen-500/40 text-mcgreen-400 bg-obsidian-900/95' :
-            toast.type === 'warn' ? 'border-amber-500/40 text-amber-400 bg-obsidian-900/95' :
-            toast.type === 'error' ? 'border-rose-500/40 text-rose-400 bg-obsidian-900/95' :
-            'border-mcgreen-500/30 text-mcgreen-400 bg-obsidian-900/90'
-          }`}>
-            {toast.type === 'success' && <CheckCircle className="w-4 h-4 shrink-0" />}
-            {toast.type === 'warn' && <AlertTriangle className="w-4 h-4 shrink-0" />}
-            {toast.type === 'error' && <AlertOctagon className="w-4 h-4 shrink-0" />}
-            {toast.type === 'info' && <Info className="w-4 h-4 shrink-0" />}
-            <span>{toast.message}</span>
-          </div>
-        </div>
-      )}
 
     </div>
   );
