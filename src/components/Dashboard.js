@@ -46,12 +46,24 @@ export default function Dashboard() {
   // Load settings from localStorage on client mount
   useEffect(() => {
     const savedUrl = localStorage.getItem('obsidian_daemon_url');
-    if (savedUrl) setDaemonUrl(savedUrl);
+    const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
+    
+    if (savedUrl) {
+      // On Vercel, ignore localhost URLs stored from local testing
+      if (isVercel && (savedUrl.includes('localhost') || savedUrl.includes('127.0.0.1'))) {
+        if (process.env.NEXT_PUBLIC_DAEMON_URL) {
+          setDaemonUrl(process.env.NEXT_PUBLIC_DAEMON_URL);
+          localStorage.setItem('obsidian_daemon_url', process.env.NEXT_PUBLIC_DAEMON_URL);
+        }
+      } else {
+        setDaemonUrl(savedUrl);
+      }
+    }
     
     const savedMode = localStorage.getItem('obsidian_connection_mode');
     if (savedMode) {
       setConnectionMode(savedMode);
-    } else if (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')) {
+    } else if (isVercel) {
       setConnectionMode('proxy');
     }
   }, []);
