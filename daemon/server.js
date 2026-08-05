@@ -262,6 +262,15 @@ setInterval(() => {
 }, 3000);
 
 // API Routes
+app.get('/api/tunnel', (req, res) => {
+    const tunnelFile = path.join(__dirname, 'cloudflare_tunnel.txt');
+    if (fs.existsSync(tunnelFile)) {
+        const url = fs.readFileSync(tunnelFile, 'utf8').trim();
+        if (url) return res.json({ cloudflareUrl: url });
+    }
+    res.status(404).json({ error: 'Cloudflare Tunnel URL not ready yet' });
+});
+
 app.get('/api/servers', (req, res) => {
     res.json(getServersList());
 });
@@ -274,23 +283,59 @@ app.get('/api/servers/:id', (req, res) => {
     res.json(server);
 });
 
-// Power Lifecycle
+// Reliable process terminator by listening port (works for both daemon & manual run.bat starts)
+function killProcessOnPort(port, callback) {
+    exec('netstat -aon', (err, stdout) => {
+        if (err || !stdout) {
+            if (callback) callback();
+            return;
+        }
+        const lines = stdout.split('\n');
+        const pids = new Set();
+        lines.forEach(line => {
+            if (line.includes(`:${port}`) && line.includes('LISTENING')) {
+                const parts = line.trim().split(/\s+/);
+                const pid = parts[parts.length - 1];
+                if (pid && !isNaN(pid) && pid !== '0') {
+                    pids.add(pid);
+                }
+            }
+        });
+        
+        if (pids.size === 0) {
+            if (callback) callback();
+            return;
+        }
+        
+        let killedCount = 0;
+        pids.forEach(pid => {
+            exec(`taskkill /F /T /PID ${pid}`, () => {
+                killedCount++;
+                if (killedCount >= pids.size && callback) {
+                    callback();
+                }
+            });
+        });
+    });
+}
+
+// Power actions
 app.post('/api/servers/:id/power', (req, res) => {
     const { id } = req.params;
     const { action } = req.body;
     
     const instance = serverInstances[id];
     if (!instance) return res.status(404).json({ error: 'Server not found' });
-    
     const serverPath = path.join(SERVERS_DIR, id);
     
     if (action === 'start') {
-        if (instance.status !== 'offline') {
-            return res.status(400).json({ error: 'Server is already running or starting' });
+        if (instance.status === 'online' || instance.status === 'starting') {
+            return res.json({ success: true, message: 'Server is already running or starting' });
         }
         
+        instance.status = 'starting';
         broadcastStatus(id, 'starting');
-        addLog(id, 'INFO', 'Starting server execution...');
+        addLog(id, 'INFO', 'Initiating server startup sequence...');
         
         let startCmd = null;
         const scripts = ['run.bat', 'startserver.bat', 'start.bat'];
@@ -333,27 +378,22 @@ app.post('/api/servers/:id/power', (req, res) => {
                             name,
                             uuid: Math.random().toString(36).substring(2, 15),
                             isOp: false,
-                            health: 20,
-                            food: 20,
-                            ping: Math.floor(Math.random() * 30) + 5,
-                            playtime: '0m',
-                            ip: ip,
-                            gamemode: 'Survival'
+                            joinedAt: new Date().toLocaleTimeString()
                         });
+                        addLog(id, 'INFO', `Player ${name} (${ip}) joined the game.`);
                     }
                 }
                 
-                if (cleanLine.includes('lost connection:')) {
-                    const parts = cleanLine.split(' ');
-                    const name = parts[parts.indexOf('connection:') - 1] || parts[3];
-                    instance.playersCount = Math.max(0, (instance.playersCount || 1) - 1);
-                    if (instance.playersRoster) {
-                        instance.playersRoster = instance.playersRoster.filter(p => p.name !== name);
+                if (cleanLine.includes('left the game')) {
+                    const match = cleanLine.match(/([a-zA-Z0-9_]+) left the game/);
+                    if (match) {
+                        const name = match[1];
+                        instance.playersCount = Math.max(0, (instance.playersCount || 1) - 1);
+                        if (instance.playersRoster) {
+                            instance.playersRoster = instance.playersRoster.filter(p => p.name !== name);
+                        }
+                        addLog(id, 'INFO', `Player ${name} left the game.`);
                     }
-                }
-                
-                if (cleanLine.includes('Done (') && cleanLine.includes('s)! For help, type')) {
-                    broadcastStatus(id, 'online');
                 }
                 
                 addLog(id, level, cleanLine);
@@ -362,6 +402,7 @@ app.post('/api/servers/:id/power', (req, res) => {
         
         instance.process.stderr.on('data', (data) => {
             const text = data.toString().trim();
+            if (!text) return;
             text.split('\n').forEach(line => {
                 addLog(id, 'ERROR', line.trim());
             });
@@ -399,14 +440,13 @@ app.post('/api/servers/:id/power', (req, res) => {
             try { instance.process.stdin.write('stop\n'); } catch(e) {}
         }
         
-        const serverPath = path.join(SERVERS_DIR, id);
         const props = readServerProperties(serverPath);
         const index = Object.keys(serverInstances).indexOf(id);
         const serverPort = props['server-port'] || (25565 + (index >= 0 ? index : 0)).toString();
         
-        const killTimeout = action === 'kill' ? 500 : 3500;
+        const killTimeout = action === 'kill' ? 200 : 2500;
         setTimeout(() => {
-            exec(`cmd.exe /c "for /f \\"tokens=5\\" %a in ('netstat -aon ^| findstr :${serverPort} ^| findstr LISTENING') do taskkill /f /pid %a"`, () => {
+            killProcessOnPort(serverPort, () => {
                 instance.status = 'offline';
                 broadcastStatus(id, 'offline');
                 addLog(id, 'INFO', 'Server process stopped completely.');
@@ -789,9 +829,13 @@ getFreePort(DEFAULT_PORT, (freePort) => {
                     if (text.includes('trycloudflare.com')) {
                         const match = text.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
                         if (match) {
+                            const cfUrl = match[0];
+                            try {
+                                fs.writeFileSync(path.join(__dirname, 'cloudflare_tunnel.txt'), cfUrl, 'utf8');
+                            } catch (e) {}
                             console.log(`\n=================================================`);
                             console.log(`>>> CLOUDFLARE QUICK TUNNEL ACTIVE (GOLD STANDARD): <<<`);
-                            console.log(`>>> ${match[0]}`);
+                            console.log(`>>> ${cfUrl}`);
                             console.log(`>>> (Zero warning pages, 100% Mobile & Vercel compatible)`);
                             console.log(`=================================================\n`);
                         }
