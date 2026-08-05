@@ -24,14 +24,17 @@ export default function Backups({ apiFetch, serverId, showToast }) {
 
   const handleCreateBackup = async () => {
     setIsBackingUp(true);
-    showToast('Compiling world compression snapshot & broadcasting in-game notice...', 'info');
+    showToast('World backup snapshot started in background...', 'info');
     try {
       const res = await apiFetch(`/api/servers/${serverId}/backups/create`, {
         method: 'POST'
       });
       if (res.success) {
-        showToast(res.message || 'World backup created successfully!', 'success');
+        showToast(res.message || 'World backup snapshot started!', 'success');
         fetchBackups();
+        setTimeout(fetchBackups, 2000);
+        setTimeout(fetchBackups, 4000);
+        setTimeout(fetchBackups, 6000);
       }
     } catch (err) {
       showToast(`Backup creation failed: ${err.message}`, 'error');

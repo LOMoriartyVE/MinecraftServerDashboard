@@ -550,9 +550,25 @@ app.get('/api/servers/:id/telemetry', async (req, res) => {
         } catch (e) { }
     }
 
-    const idleSecondsRemaining = (instance.status === 'online' && (instance.onlinePlayers || 0) === 0)
-        ? Math.max(0, 900 - (instance.idleSeconds || 0))
-        : 900;
+    const maxRamGb = 4;
+    const ramUsed = processRamGb || (instance.status === 'online' ? 2.1 : 0.0);
+    const ramPct = instance.status === 'online' ? Math.min(100, Math.round((ramUsed / maxRamGb) * 100)) : 0;
+
+    let idleRemaining = 900;
+    if (instance.status === 'online') {
+        const activePlayers = instance.onlinePlayers || instance.playersCount || 0;
+        if (activePlayers === 0) {
+            if (!instance.lastPlayerExitTime) instance.lastPlayerExitTime = Date.now();
+            const elapsedSec = Math.floor((Date.now() - instance.lastPlayerExitTime) / 1000);
+            idleRemaining = Math.max(0, 900 - elapsedSec);
+        } else {
+            instance.lastPlayerExitTime = null;
+            idleRemaining = 900;
+        }
+    } else {
+        instance.lastPlayerExitTime = null;
+        idleRemaining = 900;
+    }
 
     res.json({
         tps: instance.status === 'online' ? 20.0 : 0.0,
@@ -566,7 +582,7 @@ app.get('/api/servers/:id/telemetry', async (req, res) => {
         hostUsedRamGb: parseFloat((hostUsedMem / (1024 * 1024 * 1024)).toFixed(1)),
         hostTotalRamGb: Math.round(hostTotalMem / (1024 * 1024 * 1024)),
         uptimeSeconds: instance.uptimeSeconds,
-        idleSecondsRemaining: idleSecondsRemaining
+        idleSecondsRemaining: idleRemaining
     });
 });
 
@@ -910,6 +926,75 @@ app.get('/api/servers/:id/mods/download-client-pack', async (req, res) => {
     }
 });
 
+// Endpoint: Download Selected / New Mods Pack (.zip) or Single Mod (.jar)
+app.post('/api/servers/:id/mods/download-selected-pack', async (req, res) => {
+    const { id } = req.params;
+    const { filenames } = req.body || {};
+    const workingDir = getServerWorkingDir(id);
+    let modsDir = path.join(workingDir, 'mods');
+    if (!fs.existsSync(modsDir) && fs.existsSync(path.join(workingDir, 'Mods'))) {
+        modsDir = path.join(workingDir, 'Mods');
+    }
+    
+    if (!fs.existsSync(modsDir)) {
+        return res.status(404).json({ error: 'Mods directory not found' });
+    }
+
+    if (!filenames || !Array.isArray(filenames) || filenames.length === 0) {
+        return res.status(400).json({ error: 'No mod files selected for download' });
+    }
+
+    const versionInfo = getServerVersionInfo(id);
+    
+    if (filenames.length === 1) {
+        const singleFile = filenames[0];
+        const filePath = path.join(modsDir, singleFile);
+        if (fs.existsSync(filePath)) {
+            return res.download(filePath, singleFile);
+        }
+        return res.status(404).json({ error: `File ${singleFile} not found` });
+    }
+
+    const tempZipName = `Selected_Mods_${id}_v${versionInfo.version || '1.0.0'}.zip`;
+    const tempPackDir = path.join(os.tmpdir(), `selected_pack_${id}_${Date.now()}`);
+    const tempZipPath = path.join(os.tmpdir(), tempZipName);
+    
+    try {
+        if (!fs.existsSync(tempPackDir)) fs.mkdirSync(tempPackDir, { recursive: true });
+        
+        let copiedCount = 0;
+        for (const fname of filenames) {
+            const srcPath = path.join(modsDir, fname);
+            if (fs.existsSync(srcPath)) {
+                fs.copyFileSync(srcPath, path.join(tempPackDir, fname));
+                copiedCount++;
+            }
+        }
+
+        if (copiedCount === 0) {
+            try { fs.rmSync(tempPackDir, { recursive: true, force: true }); } catch(e) {}
+            return res.status(404).json({ error: 'None of the selected files were found' });
+        }
+
+        const psCmd = `powershell -Command "Add-Type -Assembly 'System.IO.Compression.FileSystem'; [System.IO.Compression.ZipFile]::CreateFromDirectory('${tempPackDir}', '${tempZipPath}')"`;
+        exec(psCmd, (err) => {
+            try { fs.rmSync(tempPackDir, { recursive: true, force: true }); } catch(e) {}
+
+            if (err || !fs.existsSync(tempZipPath)) {
+                return res.status(500).json({ error: 'Failed to generate selected mods zip package' });
+            }
+            
+            res.setHeader('Content-Type', 'application/zip');
+            res.setHeader('Content-Disposition', `attachment; filename="${tempZipName}"`);
+            res.download(tempZipPath, tempZipName, () => {
+                try { fs.unlinkSync(tempZipPath); } catch(e) {}
+            });
+        });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Search Modrinth API for Minecraft Mods with Enriched Facets
 app.get('/api/mods/search', async (req, res) => {
     const query = req.query.query || '';
@@ -1206,73 +1291,9 @@ getFreePort(DEFAULT_PORT, (freePort) => {
     });
 
     async function setupTunnel(targetPort) {
-        // 1. Launch Localtunnel
-        try {
-            console.log("Spawning HTTPS Localtunnel...");
-            const tunnel = await localtunnel({ port: targetPort, subdomain: FIXED_SUBDOMAIN });
-            console.log(`\n=================================================`);
-            console.log(`>>> LOCALTUNNEL ACTIVE: ${tunnel.url}`);
-            console.log(`=================================================\n`);
+        try { fs.unlinkSync(path.join(__dirname, 'cloudflare_tunnel.txt')); } catch(e) {}
 
-            tunnel.on('close', () => {
-                setTimeout(() => setupTunnel(targetPort), 5000);
-            });
-        } catch (err) {
-            console.log("Localtunnel notice:", err.message);
-        }
-
-        // 2. Launch Serveo SSH Tunnel (100% clean, no warning pages for mobile & Vercel)
-        try {
-            console.log("Spawning Clean Mobile/Vercel SSH Serveo Tunnel...");
-            const ssh = spawn('ssh', ['-o', 'StrictHostKeyChecking=no', '-R', `80:localhost:${targetPort}`, 'serveo.net']);
-            ssh.stdout.on('data', (data) => {
-                const text = data.toString();
-                if (text.includes('Forwarding HTTP traffic from')) {
-                    const match = text.match(/https:\/\/[a-zA-Z0-9-]+\.serveo\.net/);
-                    if (match) {
-                        console.log(`=================================================`);
-                        console.log(`>>> MOBILE & VERCEL CLEAN TUNNEL (NO WARNING PAGES): <<<`);
-                        console.log(`>>> ${match[0]}`);
-                        console.log(`=================================================\n`);
-                    }
-                }
-            });
-        } catch (e) {
-            console.log("Serveo SSH notice:", e.message);
-        }
-
-        // 3. Launch Tunnelto.me if installed
-        const tunneltoExe = path.join(__dirname, 'tunnelto.exe');
-        if (fs.existsSync(tunneltoExe)) {
-            try {
-                console.log("Spawning Tunnelto.me HTTPS Tunnel...");
-                const tt = spawn(tunneltoExe, ['--port', targetPort.toString()]);
-                tt.stdout.on('data', (data) => {
-                    const text = data.toString();
-                    if (text.includes('https://') || text.includes('tunnelto')) {
-                        console.log(`\n=================================================`);
-                        console.log(`>>> CLEAN MOBILE & VERCEL TUNNELTO ACTIVE: <<<`);
-                        console.log(`>>> ${text.trim()}`);
-                        console.log(`=================================================\n`);
-                    } else {
-                        console.log(`[Tunnelto] ${text.trim()}`);
-                    }
-                });
-                tt.stderr.on('data', (data) => {
-                    const text = data.toString();
-                    if (text.includes('https://')) {
-                        console.log(`\n=================================================`);
-                        console.log(`>>> CLEAN MOBILE & VERCEL TUNNELTO ACTIVE: <<<`);
-                        console.log(`>>> ${text.trim()}`);
-                        console.log(`=================================================\n`);
-                    }
-                });
-            } catch (e) {
-                console.log("Tunnelto notice:", e.message);
-            }
-        }
-
-        // 4. Launch Cloudflare Quick Tunnel (cloudflared.exe) if available
+        // 1. Launch Cloudflare Quick Tunnel (cloudflared.exe) FIRST (GOLD STANDARD)
         const cloudflaredExe = path.join(__dirname, 'cloudflared.exe');
         if (fs.existsSync(cloudflaredExe)) {
             try {
@@ -1300,6 +1321,39 @@ getFreePort(DEFAULT_PORT, (freePort) => {
             } catch (e) {
                 console.log("Cloudflared notice:", e.message);
             }
+        }
+
+        // 2. Launch Localtunnel asynchronously in background (non-blocking)
+        console.log("Spawning HTTPS Localtunnel...");
+        localtunnel({ port: targetPort, subdomain: FIXED_SUBDOMAIN }).then(tunnel => {
+            console.log(`\n=================================================`);
+            console.log(`>>> LOCALTUNNEL ACTIVE: ${tunnel.url}`);
+            console.log(`=================================================\n`);
+            tunnel.on('close', () => {
+                setTimeout(() => setupTunnel(targetPort), 5000);
+            });
+        }).catch(err => {
+            console.log("Localtunnel notice:", err.message);
+        });
+
+        // 3. Launch Serveo SSH Tunnel (100% clean)
+        try {
+            console.log("Spawning Clean Mobile/Vercel SSH Serveo Tunnel...");
+            const ssh = spawn('ssh', ['-o', 'StrictHostKeyChecking=no', '-R', `80:localhost:${targetPort}`, 'serveo.net']);
+            ssh.stdout.on('data', (data) => {
+                const text = data.toString();
+                if (text.includes('Forwarding HTTP traffic from')) {
+                    const match = text.match(/https:\/\/[a-zA-Z0-9-]+\.serveo\.net/);
+                    if (match) {
+                        console.log(`=================================================`);
+                        console.log(`>>> MOBILE & VERCEL CLEAN TUNNEL (NO WARNING PAGES): <<<`);
+                        console.log(`>>> ${match[0]}`);
+                        console.log(`=================================================\n`);
+                    }
+                }
+            });
+        } catch (e) {
+            console.log("Serveo SSH notice:", e.message);
         }
     }
 

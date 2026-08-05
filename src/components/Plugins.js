@@ -154,6 +154,72 @@ export default function Plugins({ apiFetch, serverId, activeServer, showToast, d
     }
   };
 
+  // Selection state for downloading specific mods
+  const [selectedFilenames, setSelectedFilenames] = useState([]);
+
+  const handleToggleSelectFilename = (filename) => {
+    setSelectedFilenames(prev => 
+      prev.includes(filename) ? prev.filter(f => f !== filename) : [...prev, filename]
+    );
+  };
+
+  const handleSelectAllFilenames = () => {
+    if (selectedFilenames.length === mods.length) {
+      setSelectedFilenames([]);
+    } else {
+      setSelectedFilenames(mods.map(m => m.filename));
+    }
+  };
+
+  // Download Selected / New Mods Pack (.zip or .jar)
+  const handleDownloadSelectedPack = async (filenamesToDownload, customLabel = 'Selected Mods Pack') => {
+    if (!filenamesToDownload || filenamesToDownload.length === 0) {
+      showToast('No mods selected for download.', 'warn');
+      return;
+    }
+    
+    setIsDownloadingPack(true);
+    showToast(`Generating ${customLabel}...`, 'info');
+    
+    try {
+      const cleanUrl = daemonUrl ? daemonUrl.replace(/\/$/, '') : '';
+      const endpoint = `${cleanUrl}/api/servers/${serverId}/mods/download-selected-pack`;
+      
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'bypass-tunnel-reminder': 'true' 
+        },
+        body: JSON.stringify({ filenames: filenamesToDownload })
+      });
+      
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      
+      if (filenamesToDownload.length === 1) {
+        a.download = filenamesToDownload[0];
+      } else {
+        a.download = `${customLabel.replace(/\s+/g, '_')}_v${serverVersion.version || '1.0.0'}.zip`;
+      }
+      
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(blobUrl);
+      
+      showToast(`${customLabel} downloaded successfully!`, 'success');
+    } catch (err) {
+      showToast(`Failed to download: ${err.message}`, 'error');
+    } finally {
+      setIsDownloadingPack(false);
+    }
+  };
+
   // Local Toggle & Pending state
   const handleToggleLocal = (filename, currentEnabled) => {
     const newStatus = !currentEnabled;
@@ -274,14 +340,42 @@ export default function Plugins({ apiFetch, serverId, activeServer, showToast, d
               </span>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              {/* Download NEW Mods Only button */}
+              {mods.some(m => pendingChanges[m.filename] !== undefined || m.filename.toLowerCase().includes('waystone')) && (
+                <button 
+                  onClick={() => {
+                    const newFiles = mods.filter(m => pendingChanges[m.filename] !== undefined || m.filename.toLowerCase().includes('waystone')).map(m => m.filename);
+                    handleDownloadSelectedPack(newFiles, 'New_Mods_Pack');
+                  }}
+                  disabled={isDownloadingPack}
+                  className="px-3.5 py-2 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 font-bold rounded-xl text-xs flex items-center gap-2 transition-all active:scale-95 shadow-lg shadow-amber-500/10"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  Download New Mods Only ({mods.filter(m => pendingChanges[m.filename] !== undefined || m.filename.toLowerCase().includes('waystone')).length})
+                </button>
+              )}
+
+              {/* Download Selected Mods button */}
+              {selectedFilenames.length > 0 && (
+                <button 
+                  onClick={() => handleDownloadSelectedPack(selectedFilenames, `Selected_${selectedFilenames.length}_Mods`)}
+                  disabled={isDownloadingPack}
+                  className="px-3.5 py-2 bg-mcgreen-500/15 hover:bg-mcgreen-500/25 text-mcgreen-400 border border-mcgreen-500/30 font-bold rounded-xl text-xs flex items-center gap-2 transition-all active:scale-95 shadow-lg shadow-mcgreen-500/10"
+                >
+                  <HardDriveDownload className="w-4 h-4 text-mcgreen-400" />
+                  Download Selected ({selectedFilenames.length})
+                </button>
+              )}
+
+              {/* Download All Client Mods Pack button */}
               <button 
                 onClick={handleDownloadClientPack}
                 disabled={isDownloadingPack}
                 className="px-4 py-2 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 font-bold rounded-xl text-xs flex items-center gap-2 transition-all active:scale-95 shadow-lg shadow-purple-500/10"
               >
                 {isDownloadingPack ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                Download Client Mods Pack (.zip)
+                Download All Client Pack (.zip)
               </button>
 
               <button 
@@ -300,6 +394,14 @@ export default function Plugins({ apiFetch, serverId, activeServer, showToast, d
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="bg-obsidian-900/80 border-b border-obsidian-700 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    <th className="px-3 py-3.5 w-10 text-center">
+                      <input 
+                        type="checkbox" 
+                        checked={selectedFilenames.length === mods.length && mods.length > 0} 
+                        onChange={handleSelectAllFilenames} 
+                        className="rounded bg-obsidian-900 border-obsidian-700 text-purple-500 focus:ring-0 cursor-pointer" 
+                      />
+                    </th>
                     <th className="px-5 py-3.5">Mod Name / Filename</th>
                     <th className="px-4 py-3.5">Environment</th>
                     <th className="px-4 py-3.5">Size</th>
@@ -312,13 +414,25 @@ export default function Plugins({ apiFetch, serverId, activeServer, showToast, d
                   {mods.map(mod => {
                     const isPending = pendingChanges[mod.filename] !== undefined;
                     const isNewMod = mod.filename.toLowerCase().includes('waystone') || isPending;
+                    const isSelected = selectedFilenames.includes(mod.filename);
+
                     return (
                       <tr 
                         key={mod.filename}
                         className={`hover:bg-obsidian-800/40 transition-colors ${
-                          isPending ? 'bg-amber-500/5' : ''
+                          isSelected ? 'bg-purple-500/10' : isPending ? 'bg-amber-500/5' : ''
                         }`}
                       >
+                        {/* Checkbox selection */}
+                        <td className="px-3 py-4 text-center">
+                          <input 
+                            type="checkbox" 
+                            checked={isSelected} 
+                            onChange={() => handleToggleSelectFilename(mod.filename)} 
+                            className="rounded bg-obsidian-900 border-obsidian-700 text-purple-500 focus:ring-0 cursor-pointer" 
+                          />
+                        </td>
+
                         {/* Name & Filename */}
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-3">
@@ -384,14 +498,24 @@ export default function Plugins({ apiFetch, serverId, activeServer, showToast, d
                           </button>
                         </td>
 
-                        {/* Delete Action */}
+                        {/* Download & Delete Actions */}
                         <td className="px-5 py-4 text-right">
-                          <button 
-                            onClick={() => handleDeleteMod(mod.filename)}
-                            className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-lg border border-rose-500/30 transition-all active:scale-95"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button 
+                              onClick={() => handleDownloadSelectedPack([mod.filename], mod.filename)}
+                              className="p-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 rounded-lg border border-purple-500/30 transition-all active:scale-95"
+                              title={`Download ${mod.filename}`}
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteMod(mod.filename)}
+                              className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-lg border border-rose-500/30 transition-all active:scale-95"
+                              title={`Delete ${mod.filename}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
