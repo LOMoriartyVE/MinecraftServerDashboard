@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const net = require('net');
-const { spawn } = require('child_process');
+const { spawn, exec } = require('child_process');
 const pidusage = require('pidusage');
 const localtunnel = require('localtunnel');
 
@@ -43,9 +43,11 @@ function getServersList() {
             const fullPath = path.join(SERVERS_DIR, file);
             return fs.statSync(fullPath).isDirectory();
         })
-        .map(folderName => {
+        .map((folderName, index) => {
             const serverPath = path.join(SERVERS_DIR, folderName);
             const props = readServerProperties(serverPath);
+            const defaultPort = (25565 + index).toString();
+            const serverPort = props['server-port'] || defaultPort;
             
             if (!serverInstances[folderName]) {
                 serverInstances[folderName] = {
@@ -62,7 +64,7 @@ function getServersList() {
             return {
                 id: folderName,
                 name: folderName.replace(/_/g, ' '),
-                port: props['server-port'] || '25565',
+                port: serverPort,
                 version: props['generator-settings'] ? 'Modded' : '1.21.1',
                 status: serverInstances[folderName].status,
                 onlinePlayers: serverInstances[folderName].status === 'online' ? (serverInstances[folderName].playersCount || 0) : 0,
@@ -203,7 +205,8 @@ setInterval(() => {
         const instance = serverInstances[serverId];
         const serverPath = path.join(SERVERS_DIR, serverId);
         const props = readServerProperties(serverPath);
-        const port = parseInt(props['server-port'] || '25565');
+        const index = Object.keys(serverInstances).indexOf(serverId);
+        const port = parseInt(props['server-port'] || (25565 + (index >= 0 ? index : 0)).toString());
 
         const socket = new net.Socket();
         socket.setTimeout(1500);
@@ -381,31 +384,33 @@ app.post('/api/servers/:id/power', (req, res) => {
         
         res.json({ success: true, message: 'Server is starting...' });
         
-    } else if (action === 'stop') {
+    } else if (action === 'stop' || action === 'kill') {
         if (instance.status === 'offline') {
             return res.json({ success: true, message: 'Server is already offline' });
         }
         
         broadcastStatus(id, 'stopping');
-        addLog(id, 'WARN', 'Stopping server via console command...');
+        addLog(id, 'WARN', action === 'kill' ? 'Force killing server process...' : 'Stopping server via console command...');
         
         if (instance.process && instance.process.stdin) {
-            instance.process.stdin.write('stop\n');
-        } else if (instance.process) {
-            instance.process.kill();
+            try { instance.process.stdin.write('stop\n'); } catch(e) {}
         }
+        
+        const serverPath = path.join(SERVERS_DIR, id);
+        const props = readServerProperties(serverPath);
+        const index = Object.keys(serverInstances).indexOf(id);
+        const serverPort = props['server-port'] || (25565 + (index >= 0 ? index : 0)).toString();
+        
+        const killTimeout = action === 'kill' ? 500 : 3500;
+        setTimeout(() => {
+            exec(`cmd.exe /c "for /f \\"tokens=5\\" %a in ('netstat -aon ^| findstr :${serverPort} ^| findstr LISTENING') do taskkill /f /pid %a"`, () => {
+                instance.status = 'offline';
+                broadcastStatus(id, 'offline');
+                addLog(id, 'INFO', 'Server process stopped completely.');
+            });
+        }, killTimeout);
         
         res.json({ success: true, message: 'Server shutdown initiated...' });
-        
-    } else if (action === 'kill') {
-        if (instance.process) {
-            instance.process.kill('SIGKILL');
-            addLog(id, 'ERROR', 'Forced kill process executed!');
-            broadcastStatus(id, 'offline');
-            res.json({ success: true, message: 'Process killed forcefully' });
-        } else {
-            res.status(400).json({ error: 'Process is not running' });
-        }
     } else if (action === 'restart') {
         if (instance.process && instance.process.stdin) {
             instance.process.stdin.write('stop\n');
