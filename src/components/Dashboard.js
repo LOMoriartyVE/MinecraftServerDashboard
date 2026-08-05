@@ -614,15 +614,15 @@ export default function Dashboard() {
               </div>
               <div>
                 <div className="flex justify-between text-slate-400 mb-1">
-                  <span>Host Memory</span>
+                  <span>World Size</span>
                   <span className="font-mono text-slate-200">
-                    {telemetry.hostUsedRamGb} / {telemetry.hostTotalRamGb} GB
+                    {telemetry.worldSizeFormatted || `${telemetry.worldSizeMb || 0} MB`}
                   </span>
                 </div>
                 <div className="w-full h-1.5 bg-obsidian-700 rounded-full overflow-hidden">
                   <div 
-                    className="h-full bg-blue-500 rounded-full transition-all duration-500" 
-                    style={{ width: `${(telemetry.hostUsedRamGb / telemetry.hostTotalRamGb) * 100}%` }}
+                    className="h-full bg-amber-400 rounded-full transition-all duration-500" 
+                    style={{ width: `${Math.min(100, Math.max(10, ((telemetry.worldSizeMb || 0) / 100) * 100))}%` }}
                   />
                 </div>
               </div>

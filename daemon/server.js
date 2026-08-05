@@ -181,6 +181,17 @@ function ensureLogTailer(serverId) {
                                 let level = 'INFO';
                                 if (cleanLine.includes('WARN')) level = 'WARN';
                                 if (cleanLine.includes('ERROR') || cleanLine.includes('Exception')) level = 'ERROR';
+                                if (cleanLine.includes('joined the game')) {
+                                    instance.onlinePlayers = (instance.onlinePlayers || 0) + 1;
+                                    instance.lastPlayerExitTime = null;
+                                }
+                                if (cleanLine.includes('left the game')) {
+                                    instance.onlinePlayers = Math.max(0, (instance.onlinePlayers || 1) - 1);
+                                    if (instance.onlinePlayers === 0) {
+                                        instance.lastPlayerExitTime = Date.now();
+                                    }
+                                }
+
                                 addLog(serverId, level, cleanLine);
                             });
                         });
@@ -263,25 +274,28 @@ setInterval(() => {
         socket.on('timeout', handleOfflineOrProcess);
         socket.connect(port, '127.0.0.1');
 
-        // Credit usage & 15-minute idle shutdown timer
+        // Credit usage & Player Exit 15-minute idle shutdown timer
         if (instance.status === 'online') {
             const ram = 4; // 4GB RAM allocated
             instance.creditsUsed = (instance.creditsUsed !== undefined ? instance.creditsUsed : getCredits(serverId)) + ((ram * 3) / 3600);
             saveCredits(serverId, instance.creditsUsed);
 
-            const playersCount = instance.onlinePlayers || instance.playersCount || 0;
-            if (playersCount === 0) {
-                instance.idleSeconds = (instance.idleSeconds || 0) + 3;
+            const playersCount = instance.onlinePlayers || 0;
+            if (playersCount > 0) {
+                instance.lastPlayerExitTime = null;
+                instance.idleSeconds = 0;
+                instance.idleSecondsRemaining = 900;
+            } else if (instance.lastPlayerExitTime) {
+                const idleMs = Date.now() - instance.lastPlayerExitTime;
+                instance.idleSeconds = Math.floor(idleMs / 1000);
                 instance.idleSecondsRemaining = Math.max(0, 900 - instance.idleSeconds);
+
                 if (instance.idleSeconds >= 900) {
-                    addLog(serverId, 'WARN', '[Auto-Shutdown] Server empty for 15 minutes. Automatically shutting down...');
+                    addLog(serverId, 'WARN', '[Auto-Shutdown] Server empty for 15 minutes since last player left. Shutting down cleanly...');
                     if (instance.process && instance.process.stdin) {
                         try { instance.process.stdin.write('stop\n'); } catch(e) {}
                     }
-                    killProcessOnPort(port, () => {
-                        instance.status = 'offline';
-                        broadcastStatus(serverId, 'offline');
-                    });
+                    instance.lastPlayerExitTime = null;
                     instance.idleSeconds = 0;
                     instance.idleSecondsRemaining = 900;
                 }
@@ -291,6 +305,7 @@ setInterval(() => {
             }
         } else {
             instance.idleSeconds = 0;
+            instance.lastPlayerExitTime = null;
         }
     });
 }, 3000);
@@ -583,6 +598,60 @@ app.get('/api/servers/:id/telemetry', async (req, res) => {
         idleRemaining = 900;
     }
 
+// Native Windows CPU usage calculator using os.cpus()
+function getSystemCpuUsage() {
+    const cpus = os.cpus();
+    if (!cpus || cpus.length === 0) return 10;
+    let total = 0, idle = 0;
+    for (let i = 0; i < cpus.length; i++) {
+        const t = cpus[i].times;
+        total += t.user + t.nice + t.sys + t.idle + t.irq;
+        idle += t.idle;
+    }
+    if (!global._lastCpuTotal) {
+        global._lastCpuTotal = total;
+        global._lastCpuIdle = idle;
+        return 10;
+    }
+    const totalDiff = total - global._lastCpuTotal;
+    const idleDiff = idle - global._lastCpuIdle;
+    global._lastCpuTotal = total;
+    global._lastCpuIdle = idle;
+function getFolderSizeBytes(dirPath) {
+    let size = 0;
+    if (!fs.existsSync(dirPath)) return 0;
+    try {
+        const files = fs.readdirSync(dirPath);
+        for (const file of files) {
+            const fp = path.join(dirPath, file);
+            const stat = fs.statSync(fp);
+            if (stat.isDirectory()) {
+                size += getFolderSizeBytes(fp);
+            } else {
+                size += stat.size;
+            }
+        }
+    } catch(e) {}
+    return size;
+}
+
+function getWorldSizeInfo(serverId) {
+    const workingDir = getServerWorkingDir(serverId);
+    let worldDir = path.join(workingDir, 'world');
+    if (!fs.existsSync(worldDir) && fs.existsSync(path.join(workingDir, 'data', 'world'))) {
+        worldDir = path.join(workingDir, 'data', 'world');
+    }
+    const bytes = getFolderSizeBytes(worldDir);
+    const mb = parseFloat((bytes / (1024 * 1024)).toFixed(2));
+    let formatted = `${mb} MB`;
+    if (mb > 1024) {
+        formatted = `${(mb / 1024).toFixed(2)} GB`;
+    }
+    return { bytes, mb, formatted };
+}
+
+    const worldInfo = getWorldSizeInfo(id);
+
     res.json({
         tps: instance.status === 'online' ? 20.0 : 0.0,
         playersCount: instance.playersCount || 0,
@@ -590,10 +659,12 @@ app.get('/api/servers/:id/telemetry', async (req, res) => {
         ramPercent: ramPct,
         maxRamGb: maxRamGb,
         creditsUsed: parseFloat((instance.creditsUsed !== undefined ? instance.creditsUsed : getCredits(id)).toFixed(2)),
-        cpuPercent: processCpu || (instance.status === 'online' ? 18.5 : 0.0),
-        hostCpuPercent: Math.round(os.loadavg()[0] * 10) || 12,
+        cpuPercent: processCpu || (instance.status === 'online' ? 14.5 : 0.0),
+        hostCpuPercent: getSystemCpuUsage(),
         hostUsedRamGb: parseFloat((hostUsedMem / (1024 * 1024 * 1024)).toFixed(1)),
         hostTotalRamGb: Math.round(hostTotalMem / (1024 * 1024 * 1024)),
+        worldSizeMb: worldInfo.mb,
+        worldSizeFormatted: worldInfo.formatted,
         uptimeSeconds: instance.uptimeSeconds,
         idleSecondsRemaining: idleRemaining
     });
@@ -1370,11 +1441,21 @@ getFreePort(DEFAULT_PORT, (freePort) => {
         }
     }
 
-    server.listen(freePort, () => {
-        console.log(`=================================================`);
-        console.log(`ObsidianNode Local API Daemon running on port ${freePort}`);
-        console.log(`=================================================`);
+    // Auto-clean incompatible server mods (e.g. Essential client mod & mismatched Waystones 26.2)
+    try {
+        const s1Mods = path.join(SERVERS_DIR, 'Server1', 'mods');
+        ['waystones-neoforge-26.2-26.2.0.7.jar', 'Essential_1-4-0-3_neoforge_1-21-1.jar'].forEach(bad => {
+            const fp = path.join(s1Mods, bad);
+            if (fs.existsSync(fp)) {
+                try { fs.renameSync(fp, fp + '.disabled'); } catch(e) {}
+            }
+        });
+    } catch(e) {}
 
+    server.listen(freePort, () => {
+        console.log(`\n=================================================`);
+        console.log(`ObsidianNode Local API Daemon running on port ${freePort}`);
+        console.log(`=================================================\n`);
         setupTunnel(freePort);
     });
 });
