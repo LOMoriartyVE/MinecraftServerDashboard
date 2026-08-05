@@ -79,9 +79,11 @@ export default function Plugins({ apiFetch, serverId, activeServer, showToast })
   // Load Version Matrix for selected Mod (Matches Modrinth UI Screenshot)
   const handleSelectModDetail = async (mod) => {
     setSelectedMod(mod);
+    setModVersions([]);
     setIsLoadingVersions(true);
     try {
-      const data = await apiFetch(`/api/mods/${mod.id}/versions`);
+      const targetId = mod.id || mod.slug;
+      const data = await apiFetch(`/api/mods/${targetId}/versions?slug=${encodeURIComponent(mod.slug || '')}`);
       setModVersions(data || []);
     } catch (err) {
       showToast(`Failed to load versions: ${err.message}`, 'error');
@@ -593,61 +595,72 @@ export default function Plugins({ apiFetch, serverId, activeServer, showToast })
 
             {/* Versions Table (Matches Modrinth UI Screenshot!) */}
             <div className="flex-1 overflow-y-auto border border-obsidian-700 rounded-xl bg-obsidian-900/60">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="bg-obsidian-900 border-b border-obsidian-700 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                    <th className="px-4 py-3">Version</th>
-                    <th className="px-4 py-3">Game Version</th>
-                    <th className="px-4 py-3">Platform</th>
-                    <th className="px-4 py-3">Published</th>
-                    <th className="px-4 py-3">Downloads</th>
-                    <th className="px-4 py-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-obsidian-700/60">
-                  {modVersions.map(ver => (
-                    <tr key={ver.id} className="hover:bg-obsidian-800/40 transition-colors">
-                      <td className="px-4 py-3.5 font-bold font-mono text-white">
-                        {ver.versionNumber || ver.name}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <div className="flex flex-wrap gap-1">
-                          {ver.gameVersions.slice(0, 3).map(gv => (
-                            <span key={gv} className="px-2 py-0.5 rounded text-[10px] font-mono bg-obsidian-800 text-mcgreen-400 border border-obsidian-750">
-                              {gv}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <div className="flex flex-wrap gap-1">
-                          {ver.loaders.map(loader => (
-                            <span key={loader} className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/30">
-                              {loader}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5 text-slate-400 text-[11px]">
-                        {new Date(ver.datePublished).toLocaleDateString()}
-                      </td>
-                      <td className="px-4 py-3.5 font-mono text-slate-400">
-                        {ver.downloads?.toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3.5 text-right">
-                        <button 
-                          onClick={() => handleInstallRemoteMod(selectedMod, ver)}
-                          disabled={installingVersionId === ver.id}
-                          className="px-3 py-1.5 bg-mcgreen-500 hover:bg-mcgreen-600 disabled:opacity-50 text-obsidian-950 font-bold rounded-lg text-xs flex items-center gap-1 ml-auto active:scale-95 transition-all"
-                        >
-                          {installingVersionId === ver.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
-                          Install
-                        </button>
-                      </td>
+              {isLoadingVersions ? (
+                <div className="py-20 text-center text-slate-400 text-xs font-mono flex flex-col items-center justify-center gap-3">
+                  <RefreshCw className="w-6 h-6 animate-spin text-mcgreen-400" />
+                  <span>Fetching release version matrix from Modrinth...</span>
+                </div>
+              ) : modVersions.length === 0 ? (
+                <div className="py-20 text-center text-slate-400 text-xs font-mono">
+                  No release builds found matching this mod on Modrinth.
+                </div>
+              ) : (
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-obsidian-900 border-b border-obsidian-700 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                      <th className="px-4 py-3">Version</th>
+                      <th className="px-4 py-3">Game Version</th>
+                      <th className="px-4 py-3">Platform</th>
+                      <th className="px-4 py-3">Published</th>
+                      <th className="px-4 py-3">Downloads</th>
+                      <th className="px-4 py-3 text-right">Action</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-obsidian-700/60">
+                    {modVersions.map(ver => (
+                      <tr key={ver.id} className="hover:bg-obsidian-800/40 transition-colors">
+                        <td className="px-4 py-3.5 font-bold font-mono text-white">
+                          {ver.versionNumber || ver.name}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <div className="flex flex-wrap gap-1">
+                            {ver.gameVersions.slice(0, 3).map(gv => (
+                              <span key={gv} className="px-2 py-0.5 rounded text-[10px] font-mono bg-obsidian-800 text-mcgreen-400 border border-obsidian-750">
+                                {gv}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <div className="flex flex-wrap gap-1">
+                            {ver.loaders.map(loader => (
+                              <span key={loader} className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                                {loader}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5 text-slate-400 text-[11px]">
+                          {new Date(ver.datePublished).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-3.5 font-mono text-slate-400">
+                          {ver.downloads?.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3.5 text-right">
+                          <button 
+                            onClick={() => handleInstallRemoteMod(selectedMod, ver)}
+                            disabled={installingVersionId === ver.id}
+                            className="px-3 py-1.5 bg-mcgreen-500 hover:bg-mcgreen-600 disabled:opacity-50 text-obsidian-950 font-bold rounded-lg text-xs flex items-center gap-1 ml-auto active:scale-95 transition-all"
+                          >
+                            {installingVersionId === ver.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                            Install
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
 
           </div>

@@ -596,14 +596,26 @@ app.post('/api/servers/:id/players/:username/action', (req, res) => {
 // World Auto-Backup Helper with In-Game Announcement & Size Reporting
 async function createWorldBackup(serverId, triggerSource = 'Manual') {
     const instance = serverInstances[serverId];
-    const serverPath = path.join(SERVERS_DIR, serverId);
-    const worldPath = path.join(serverPath, 'world');
-    const backupsDir = path.join(serverPath, 'backups');
+    const workingDir = getServerWorkingDir(serverId);
+    const props = readServerProperties(workingDir);
+    const worldFolderName = props['level-name'] || 'world';
     
-    if (!fs.existsSync(worldPath)) return { success: false, error: 'World folder not found' };
+    let worldPath = path.join(workingDir, worldFolderName);
+    if (!fs.existsSync(worldPath)) {
+        try {
+            const subdirs = fs.readdirSync(workingDir).filter(f => {
+                try { return fs.statSync(path.join(workingDir, f)).isDirectory(); } catch(e) { return false; }
+            });
+            const found = subdirs.find(d => fs.existsSync(path.join(workingDir, d, 'level.dat')));
+            if (found) worldPath = path.join(workingDir, found);
+        } catch(e) {}
+    }
+    
+    if (!fs.existsSync(worldPath)) return { success: false, error: `World folder (${worldFolderName}) not found` };
+    
+    const backupsDir = path.join(workingDir, 'backups');
     if (!fs.existsSync(backupsDir)) fs.mkdirSync(backupsDir, { recursive: true });
     
-    // Broadcast in-game message if server is online
     if (instance && instance.status === 'online' && instance.process && instance.process.stdin) {
         try {
             instance.process.stdin.write('say §e[ObsidianNode] Auto-Backup starting... Please wait.\n');
@@ -637,13 +649,15 @@ async function createWorldBackup(serverId, triggerSource = 'Manual') {
     const backupFilePath = path.join(backupsDir, backupFileName);
     
     return new Promise((resolve) => {
-        const psCmd = `powershell -Command "Compress-Archive -Path '${worldPath}\\*' -DestinationPath '${backupFilePath}' -Force"`;
+        const psCmd = `powershell -Command "Compress-Archive -Path '${worldPath}\\*' -DestinationPath '${backupFilePath}' -Force -ErrorAction SilentlyContinue"`;
         exec(psCmd, (err) => {
             let newSizeMb = '0.00';
-            try {
-                const backupStat = fs.statSync(backupFilePath);
-                newSizeMb = (backupStat.size / (1024 * 1024)).toFixed(2);
-            } catch(e) {}
+            if (fs.existsSync(backupFilePath)) {
+                try {
+                    const backupStat = fs.statSync(backupFilePath);
+                    newSizeMb = (backupStat.size / (1024 * 1024)).toFixed(2);
+                } catch(e) {}
+            }
             
             const logMsg = `[ObsidianNode Backup] (${triggerSource}) Completed! Original World Size: ${oldSizeMb} MB -> Compressed Backup: ${newSizeMb} MB`;
             addLog(serverId, 'INFO', logMsg);
@@ -678,15 +692,75 @@ setInterval(() => {
     });
 }, 3600000);
 
-// Backup API Endpoint
+// List Backups API Endpoint
+app.get('/api/servers/:id/backups', (req, res) => {
+    const { id } = req.params;
+    const workingDir = getServerWorkingDir(id);
+    const backupsDir = path.join(workingDir, 'backups');
+    
+    if (!fs.existsSync(backupsDir)) return res.json([]);
+    
+    try {
+        const files = fs.readdirSync(backupsDir)
+            .filter(f => f.endsWith('.zip'))
+            .map(f => {
+                const filePath = path.join(backupsDir, f);
+                const stats = fs.statSync(filePath);
+                const mb = (stats.size / (1024 * 1024)).toFixed(2);
+                return {
+                    name: f,
+                    filename: f,
+                    sizeBytes: stats.size,
+                    sizeMb: mb,
+                    createdAt: stats.birthtime || stats.mtime
+                };
+            })
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            
+        res.json(files);
+    } catch(e) {
+        res.json([]);
+    }
+});
+
+// Trigger Backup API Endpoints
+app.post('/api/servers/:id/backups', async (req, res) => {
+    const { id } = req.params;
+    const result = await createWorldBackup(id, 'Manual Dashboard Action');
+    if (result.success) {
+        res.json({ success: true, message: `Backup created! World: ${result.oldSizeMb} MB -> Zip: ${result.newSizeMb} MB`, ...result });
+    } else {
+        res.status(500).json({ error: result.error || 'Backup creation failed' });
+    }
+});
+
 app.post('/api/servers/:id/backups/create', async (req, res) => {
     const { id } = req.params;
     const result = await createWorldBackup(id, 'Manual Dashboard Action');
     if (result.success) {
-        res.json(result);
+        res.json({ success: true, message: `Backup created! World: ${result.oldSizeMb} MB -> Zip: ${result.newSizeMb} MB`, ...result });
     } else {
         res.status(500).json({ error: result.error || 'Backup creation failed' });
     }
+});
+
+// Delete Backup API Endpoint
+app.delete('/api/servers/:id/backups/:filename', (req, res) => {
+    const { id, filename } = req.params;
+    const workingDir = getServerWorkingDir(id);
+    const backupsDir = path.join(workingDir, 'backups');
+    const filePath = path.join(backupsDir, filename);
+    
+    if (fs.existsSync(filePath)) {
+        try {
+            fs.unlinkSync(filePath);
+            addLog(id, 'WARN', `Deleted backup archive file: ${filename}`);
+            return res.json({ success: true });
+        } catch(e) {
+            return res.status(500).json({ error: e.message });
+        }
+    }
+    res.status(404).json({ error: 'Backup archive file not found' });
 });
 
 // Mods (case-insensitive Mods/mods support + enabled/disabled support)
