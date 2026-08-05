@@ -130,6 +130,41 @@ function broadcastStatus(serverId, status) {
     });
 }
 
+// Background TCP port monitor to detect servers started outside the daemon
+setInterval(() => {
+    Object.keys(serverInstances).forEach(serverId => {
+        const instance = serverInstances[serverId];
+        const serverPath = path.join(SERVERS_DIR, serverId);
+        const props = readServerProperties(serverPath);
+        const port = parseInt(props['server-port'] || '25565');
+
+        const socket = new net.Socket();
+        socket.setTimeout(1500);
+        socket.on('connect', () => {
+            socket.destroy();
+            if (instance.status === 'offline') {
+                instance.status = 'online';
+                broadcastStatus(serverId, 'online');
+            }
+        });
+        socket.on('error', () => {
+            socket.destroy();
+            if (instance.status === 'online' && !instance.process) {
+                instance.status = 'offline';
+                broadcastStatus(serverId, 'offline');
+            }
+        });
+        socket.on('timeout', () => {
+            socket.destroy();
+            if (instance.status === 'online' && !instance.process) {
+                instance.status = 'offline';
+                broadcastStatus(serverId, 'offline');
+            }
+        });
+        socket.connect(port, '127.0.0.1');
+    });
+}, 3000);
+
 // API Routes
 app.get('/api/servers', (req, res) => {
     res.json(getServersList());
@@ -175,7 +210,7 @@ app.post('/api/servers/:id/power', (req, res) => {
         } else {
             const jarFiles = fs.readdirSync(serverPath).filter(f => f.endsWith('.jar') && f.includes('server'));
             const serverJar = jarFiles[0] || 'server.jar';
-            instance.process = spawn('java', ['-Xmx2G', '-Xms2G', '-jar', serverJar, 'nogui'], { cwd: serverPath });
+            instance.process = spawn('java', ['-Xmx4G', '-Xms4G', '-jar', serverJar, 'nogui'], { cwd: serverPath });
         }
         
         instance.uptimeSeconds = 0;
@@ -603,6 +638,63 @@ getFreePort(DEFAULT_PORT, (freePort) => {
             });
         } catch (e) {
             console.log("Serveo SSH notice:", e.message);
+        }
+
+        // 3. Launch Tunnelto.me if installed
+        const tunneltoExe = path.join(__dirname, 'tunnelto.exe');
+        if (fs.existsSync(tunneltoExe)) {
+            try {
+                console.log("Spawning Tunnelto.me HTTPS Tunnel...");
+                const tt = spawn(tunneltoExe, ['--port', targetPort.toString()]);
+                tt.stdout.on('data', (data) => {
+                    const text = data.toString();
+                    if (text.includes('https://') || text.includes('tunnelto')) {
+                        console.log(`\n=================================================`);
+                        console.log(`>>> CLEAN MOBILE & VERCEL TUNNELTO ACTIVE: <<<`);
+                        console.log(`>>> ${text.trim()}`);
+                        console.log(`=================================================\n`);
+                    } else {
+                        console.log(`[Tunnelto] ${text.trim()}`);
+                    }
+                });
+                tt.stderr.on('data', (data) => {
+                    const text = data.toString();
+                    if (text.includes('https://')) {
+                        console.log(`\n=================================================`);
+                        console.log(`>>> CLEAN MOBILE & VERCEL TUNNELTO ACTIVE: <<<`);
+                        console.log(`>>> ${text.trim()}`);
+                        console.log(`=================================================\n`);
+                    }
+                });
+            } catch (e) {
+                console.log("Tunnelto notice:", e.message);
+            }
+        }
+
+        // 4. Launch Cloudflare Quick Tunnel (cloudflared.exe) if available
+        const cloudflaredExe = path.join(__dirname, 'cloudflared.exe');
+        if (fs.existsSync(cloudflaredExe)) {
+            try {
+                console.log("Spawning Cloudflare Quick Tunnel (zero warning pages)...");
+                const cf = spawn(cloudflaredExe, ['tunnel', '--url', `http://localhost:${targetPort}`]);
+                const handleData = (data) => {
+                    const text = data.toString();
+                    if (text.includes('trycloudflare.com')) {
+                        const match = text.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
+                        if (match) {
+                            console.log(`\n=================================================`);
+                            console.log(`>>> CLOUDFLARE QUICK TUNNEL ACTIVE (GOLD STANDARD): <<<`);
+                            console.log(`>>> ${match[0]}`);
+                            console.log(`>>> (Zero warning pages, 100% Mobile & Vercel compatible)`);
+                            console.log(`=================================================\n`);
+                        }
+                    }
+                };
+                cf.stdout.on('data', handleData);
+                cf.stderr.on('data', handleData);
+            } catch (e) {
+                console.log("Cloudflared notice:", e.message);
+            }
         }
     }
 
