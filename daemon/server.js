@@ -22,8 +22,19 @@ app.options('*', cors());
 
 app.use(express.json());
 
-const DEFAULT_PORT = parseInt(process.env.PORT || '3001', 10);
 const SERVERS_DIR = path.resolve(__dirname, '../../Servers');
+
+// Automatically clean up old temporary setup files (.py, .bat, .html) from project root
+try {
+    const rootDir = path.resolve(__dirname, '../../');
+    fs.readdirSync(rootDir).forEach(file => {
+        if (file.endsWith('.py') || file.endsWith('.bat') || file.endsWith('.html')) {
+            fs.unlinkSync(path.join(rootDir, file));
+        }
+    });
+} catch(e) {}
+
+const DEFAULT_PORT = parseInt(process.env.PORT || '3001', 10);
 
 // Fixed subdomain based on user computer name so the URL never changes
 const COMPUTER_NAME = os.hostname().toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -741,6 +752,80 @@ app.post('/api/servers/:id/mods/toggle', async (req, res) => {
     
     addLog(id, 'INFO', `Mod status updated: ${filename} -> ${targetFilename} (${enabled ? 'Enabled' : 'Disabled'})`);
     res.json({ success: true, newFilename: targetFilename, enabled });
+});
+
+// Search Modrinth API for Minecraft Mods
+app.get('/api/mods/search', async (req, res) => {
+    const query = req.query.query || '';
+    if (!query) return res.json([]);
+    
+    try {
+        const modrinthUrl = `https://api.modrinth.com/v2/search?query=${encodeURIComponent(query)}&limit=15&facets=[["project_type:mod"]]`;
+        const apiRes = await fetch(modrinthUrl, {
+            headers: { 'User-Agent': 'ObsidianNode-Minecraft-Panel/1.0.0' }
+        });
+        
+        if (!apiRes.ok) return res.status(500).json({ error: 'Modrinth API error' });
+        
+        const data = await apiRes.json();
+        const results = (data.hits || []).map(hit => ({
+            id: hit.project_id,
+            slug: hit.slug,
+            title: hit.title,
+            description: hit.description,
+            iconUrl: hit.icon_url,
+            author: hit.author,
+            downloads: hit.downloads,
+            categories: hit.categories || []
+        }));
+        
+        res.json(results);
+    } catch(err) {
+        res.status(500).json({ error: `Search failed: ${err.message}` });
+    }
+});
+
+// Install Mod from Modrinth 1-Click
+app.post('/api/servers/:id/mods/install-remote', async (req, res) => {
+    const { id } = req.params;
+    const { projectId, title } = req.body;
+    
+    const serverPath = getServerWorkingDir(id);
+    let modsDir = path.join(serverPath, 'mods');
+    if (!fs.existsSync(modsDir) && fs.existsSync(path.join(serverPath, 'Mods'))) {
+        modsDir = path.join(serverPath, 'Mods');
+    }
+    if (!fs.existsSync(modsDir)) fs.mkdirSync(modsDir, { recursive: true });
+    
+    try {
+        const versionUrl = `https://api.modrinth.com/v2/project/${projectId}/version`;
+        const vRes = await fetch(versionUrl, {
+            headers: { 'User-Agent': 'ObsidianNode-Minecraft-Panel/1.0.0' }
+        });
+        
+        if (!vRes.ok) return res.status(404).json({ error: 'Failed to fetch mod version' });
+        const versions = await vRes.json();
+        if (!versions || versions.length === 0) return res.status(404).json({ error: 'No downloadable versions found' });
+        
+        const latestVersion = versions[0];
+        const primaryFile = (latestVersion.files || []).find(f => f.primary) || latestVersion.files[0];
+        if (!primaryFile || !primaryFile.url) return res.status(404).json({ error: 'No .jar file download link available' });
+        
+        // Safety backup before downloading new mod!
+        try { await createWorldBackup(id, `Pre-Installation Backup: ${title || projectId}`); } catch(e) {}
+        
+        const fileRes = await fetch(primaryFile.url);
+        const arrayBuffer = await fileRes.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        
+        const targetFilePath = path.join(modsDir, primaryFile.filename);
+        fs.writeFileSync(targetFilePath, buffer);
+        
+        addLog(id, 'INFO', `Installed mod "${title || primaryFile.filename}" directly from Modrinth into mods/`);
+        res.json({ success: true, filename: primaryFile.filename, title });
+    } catch(err) {
+        res.status(500).json({ error: `Installation failed: ${err.message}` });
+    }
 });
 
 // Delete Mod Endpoint

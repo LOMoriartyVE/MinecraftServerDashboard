@@ -1,13 +1,20 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Puzzle, ToggleLeft, ToggleRight, Trash2, Save, RefreshCw, Upload, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Puzzle, ToggleLeft, ToggleRight, Trash2, Save, RefreshCw, Search, Download, CheckCircle2, AlertTriangle, X, Sparkles, ShieldCheck } from 'lucide-react';
 
 export default function Plugins({ apiFetch, serverId, showToast }) {
   const [mods, setMods] = useState([]);
   const [pendingChanges, setPendingChanges] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Modrinth Search State
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [installingId, setInstallingId] = useState(null);
 
   const fetchMods = async () => {
     if (!serverId) return;
@@ -26,6 +33,47 @@ export default function Plugins({ apiFetch, serverId, showToast }) {
   useEffect(() => {
     fetchMods();
   }, [serverId]);
+
+  // Execute Modrinth API search
+  const handleSearchMods = async (e) => {
+    if (e) e.preventDefault();
+    if (!searchQuery.trim()) return;
+    setIsSearching(true);
+    try {
+      const data = await apiFetch(`/api/mods/search?query=${encodeURIComponent(searchQuery)}`);
+      setSearchResults(data || []);
+    } catch (err) {
+      showToast(`Search failed: ${err.message}`, 'error');
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // 1-Click Install Mod from Modrinth
+  const handleInstallRemoteMod = async (mod) => {
+    setInstallingId(mod.id);
+    showToast(`Downloading "${mod.title}" & creating safety backup...`, 'info');
+    try {
+      const res = await apiFetch(`/api/servers/${serverId}/mods/install-remote`, {
+        method: 'POST',
+        body: JSON.stringify({
+          projectId: mod.id,
+          title: mod.title
+        })
+      });
+
+      if (res.success) {
+        showToast(`Successfully installed ${mod.title}! Pre-installation backup saved.`, 'success');
+        fetchMods();
+        // Mark pending restart
+        setPendingChanges(prev => ({ ...prev, [res.filename]: true }));
+      }
+    } catch (err) {
+      showToast(`Failed to install ${mod.title}: ${err.message}`, 'error');
+    } finally {
+      setInstallingId(null);
+    }
+  };
 
   // Toggle mod status locally in pending state
   const handleToggleLocal = (filename, currentEnabled) => {
@@ -66,7 +114,6 @@ export default function Plugins({ apiFetch, serverId, showToast }) {
     showToast('Creating safety backup & applying mod changes...', 'info');
 
     try {
-      // Apply each pending toggle change
       for (const [filename, enabled] of Object.entries(pendingChanges)) {
         await apiFetch(`/api/servers/${serverId}/mods/toggle`, {
           method: 'POST',
@@ -76,7 +123,6 @@ export default function Plugins({ apiFetch, serverId, showToast }) {
 
       showToast('Mod changes saved! Rebooting Minecraft server...', 'success');
 
-      // Trigger server restart
       await apiFetch(`/api/servers/${serverId}/power`, {
         method: 'POST',
         body: JSON.stringify({ action: 'restart' })
@@ -108,11 +154,17 @@ export default function Plugins({ apiFetch, serverId, showToast }) {
             <Puzzle className="w-5 h-5 text-mcgreen-400" /> Plugins & Modifications
           </h3>
           <p className="text-xs text-slate-400 mt-1">
-            Manage, enable, or disable mods in your server&apos;s <code className="text-mcgreen-400 font-mono">/mods</code> directory with safety auto-backups.
+            Manage, enable, or search & 1-click install mods directly from Modrinth / CurseForge database.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
+          <button 
+            onClick={() => setIsSearchOpen(true)}
+            className="px-4 py-2 bg-mcgreen-500 hover:bg-mcgreen-600 text-obsidian-950 font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-mcgreen-500/20 active:scale-95 transition-all"
+          >
+            <Sparkles className="w-4 h-4" /> Search Modrinth / CurseForge
+          </button>
           <button 
             onClick={fetchMods}
             className="p-2 bg-obsidian-850 hover:bg-obsidian-800 text-slate-300 rounded-xl border border-obsidian-700 transition-all active:scale-95"
@@ -268,6 +320,97 @@ export default function Plugins({ apiFetch, serverId, showToast }) {
             )}
             Save & Restart Server
           </button>
+        </div>
+      )}
+
+      {/* Modrinth / CurseForge Search & 1-Click Installer Modal */}
+      {isSearchOpen && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="glass-panel w-full max-w-2xl rounded-2xl border border-obsidian-700 bg-obsidian-950 p-6 space-y-4 max-h-[85vh] flex flex-col">
+            
+            <div className="flex items-center justify-between border-b border-obsidian-700 pb-3">
+              <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-mcgreen-400" /> Search & 1-Click Install Mods (Modrinth)
+              </h4>
+              <button 
+                onClick={() => setIsSearchOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSearchMods} className="flex gap-2">
+              <input 
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search mods e.g. Waystones, JEI, Create, JourneyMap..."
+                className="flex-1 bg-obsidian-900 border border-obsidian-700 focus:border-mcgreen-500 rounded-xl px-3.5 py-2 text-xs text-white font-mono outline-none"
+              />
+              <button 
+                type="submit"
+                disabled={isSearching}
+                className="px-4 py-2 bg-mcgreen-500 hover:bg-mcgreen-600 text-obsidian-950 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-all"
+              >
+                {isSearching ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                Search
+              </button>
+            </form>
+
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1 font-sans">
+              {searchResults.map(result => (
+                <div 
+                  key={result.id}
+                  className="bg-obsidian-900/80 border border-obsidian-700/80 p-3.5 rounded-xl flex items-start justify-between gap-4 hover:border-mcgreen-500/40 transition-all"
+                >
+                  <div className="flex items-start gap-3">
+                    {result.iconUrl ? (
+                      <img src={result.iconUrl} alt={result.title} className="w-10 h-10 rounded-lg object-cover bg-obsidian-800 shrink-0" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-lg bg-mcgreen-500/10 text-mcgreen-400 border border-mcgreen-500/20 flex items-center justify-center font-bold text-xs shrink-0">
+                        <Puzzle className="w-5 h-5" />
+                      </div>
+                    )}
+                    <div>
+                      <h5 className="font-bold text-white text-xs flex items-center gap-2">
+                        {result.title}
+                        <span className="text-[9px] text-slate-400 font-normal">by {result.author}</span>
+                      </h5>
+                      <p className="text-[11px] text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                        {result.description}
+                      </p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className="text-[9px] bg-obsidian-800 text-slate-300 px-2 py-0.5 rounded font-mono">
+                          ⬇ {result.downloads?.toLocaleString()} downloads
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={() => handleInstallRemoteMod(result)}
+                    disabled={installingId === result.id}
+                    className="px-3 py-1.5 bg-mcgreen-500 hover:bg-mcgreen-600 disabled:opacity-50 text-obsidian-950 font-bold rounded-lg text-xs flex items-center gap-1.5 shrink-0 transition-all active:scale-95"
+                  >
+                    {installingId === result.id ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Download className="w-3.5 h-3.5" />
+                    )}
+                    Install
+                  </button>
+                </div>
+              ))}
+
+              {searchResults.length === 0 && !isSearching && (
+                <div className="py-12 text-center text-slate-500 text-xs font-mono">
+                  {searchQuery ? 'No mods found for query' : 'Type a mod name above to search Modrinth & CurseForge database'}
+                </div>
+              )}
+            </div>
+
+          </div>
         </div>
       )}
 
