@@ -114,61 +114,15 @@ export default function Settings({
           <form onSubmit={handleConnectionSave} className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Connection Protocol Mode
-              </label>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setConnectionMode('direct');
-                    localStorage.setItem('obsidian_connection_mode', 'direct');
-                    showToast('Switched to Direct WebSocket connection mode', 'info');
-                  }}
-                  className={`py-2 rounded-xl border text-center font-semibold transition-all ${
-                    connectionMode === 'direct'
-                      ? 'bg-mcgreen-500/10 text-mcgreen-400 border-mcgreen-500/30'
-                      : 'bg-obsidian-850 hover:bg-obsidian-800 text-slate-400 border-obsidian-700'
-                  }`}
-                >
-                  Direct HTTPS (Option A)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setConnectionMode('proxy');
-                    localStorage.setItem('obsidian_connection_mode', 'proxy');
-                    showToast('Switched to Next.js API proxy routing mode', 'info');
-                  }}
-                  className={`py-2 rounded-xl border text-center font-semibold transition-all ${
-                    connectionMode === 'proxy'
-                      ? 'bg-mcgreen-500/10 text-mcgreen-400 border-mcgreen-500/30'
-                      : 'bg-obsidian-850 hover:bg-obsidian-800 text-slate-400 border-obsidian-700'
-                  }`}
-                >
-                  Vercel Proxy (Option B)
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Local API Endpoint URL
+                Daemon Endpoint URL (Direct HTTPS)
               </label>
               <input
                 type="text"
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
-                placeholder="e.g. https://xxxx.localtunnel.me"
+                placeholder="e.g. https://xxx.trycloudflare.com"
                 className="w-full bg-obsidian-950 border border-obsidian-700 focus:border-mcgreen-500 rounded-xl px-3 py-2 text-xs font-mono text-white outline-none transition-colors"
               />
-              <p className="text-[10px] text-slate-500 leading-normal flex items-start gap-1 font-sans mt-1">
-                <HelpCircle className="w-3.5 h-3.5 shrink-0 text-slate-600" />
-                {connectionMode === 'direct' ? (
-                  <span>For Option A: Paste the secure localtunnel URL printed by your local daemon console.</span>
-                ) : (
-                  <span>For Option B: Paste your playit.gg HTTP tunnel URL (e.g. http://name.tun.ply.gg:3001).</span>
-                )}
-              </p>
             </div>
 
             <button

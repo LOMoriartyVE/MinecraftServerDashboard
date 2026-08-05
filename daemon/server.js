@@ -130,7 +130,74 @@ function broadcastStatus(serverId, status) {
     });
 }
 
-// Background TCP port monitor to detect servers started outside the daemon
+// Helper to tail latest.log when server runs (either via daemon or manual run.bat)
+function ensureLogTailer(serverId) {
+    const instance = serverInstances[serverId];
+    if (!instance || instance.logWatcher) return;
+    
+    const logFilePath = path.join(SERVERS_DIR, serverId, 'logs', 'latest.log');
+    if (!fs.existsSync(logFilePath)) return;
+    
+    let lastSize = 0;
+    try {
+        lastSize = fs.statSync(logFilePath).size;
+    } catch(e) {}
+    
+    try {
+        const watcher = fs.watch(logFilePath, (eventType) => {
+            if (eventType === 'change') {
+                try {
+                    const stats = fs.statSync(logFilePath);
+                    if (stats.size > lastSize) {
+                        const stream = fs.createReadStream(logFilePath, {
+                            start: lastSize,
+                            end: stats.size,
+                            encoding: 'utf8'
+                        });
+                        lastSize = stats.size;
+                        
+                        let buffer = '';
+                        stream.on('data', chunk => { buffer += chunk; });
+                        stream.on('end', () => {
+                            buffer.split('\n').forEach(line => {
+                                const cleanLine = line.trim();
+                                if (!cleanLine) return;
+                                let level = 'INFO';
+                                if (cleanLine.includes('WARN')) level = 'WARN';
+                                if (cleanLine.includes('ERROR') || cleanLine.includes('Exception')) level = 'ERROR';
+                                addLog(serverId, level, cleanLine);
+                            });
+                        });
+                    } else if (stats.size < lastSize) {
+                        lastSize = stats.size;
+                    }
+                } catch(e) {}
+            }
+        });
+        instance.logWatcher = watcher;
+    } catch(e) {}
+}
+
+// Server Credit tracking helper (Credits = Uptime Hours * Allocated RAM GB)
+function getCredits(serverId) {
+    const creditsPath = path.join(SERVERS_DIR, serverId, 'credits.json');
+    if (fs.existsSync(creditsPath)) {
+        try {
+            const data = JSON.parse(fs.readFileSync(creditsPath, 'utf8'));
+            return parseFloat(data.creditsUsed || 0.0);
+        } catch(e) {}
+    }
+    return 0.0;
+}
+
+function saveCredits(serverId, credits) {
+    const creditsPath = path.join(SERVERS_DIR, serverId, 'credits.json');
+    try {
+        fs.writeFileSync(creditsPath, JSON.stringify({ creditsUsed: parseFloat(credits.toFixed(4)) }));
+    } catch(e) {}
+}
+
+// Background TCP port monitor & 15-min idle auto-shutdown
 setInterval(() => {
     Object.keys(serverInstances).forEach(serverId => {
         const instance = serverInstances[serverId];
@@ -146,6 +213,7 @@ setInterval(() => {
                 instance.status = 'online';
                 broadcastStatus(serverId, 'online');
             }
+            ensureLogTailer(serverId);
         });
         socket.on('error', () => {
             socket.destroy();
@@ -162,6 +230,29 @@ setInterval(() => {
             }
         });
         socket.connect(port, '127.0.0.1');
+
+        // Credit usage & 15-minute idle shutdown timer
+        if (instance.status === 'online') {
+            const ram = 4; // 4GB RAM allocated
+            instance.creditsUsed = (instance.creditsUsed !== undefined ? instance.creditsUsed : getCredits(serverId)) + ((ram * 3) / 3600);
+            saveCredits(serverId, instance.creditsUsed);
+
+            const playersCount = instance.onlinePlayers || 0;
+            if (playersCount === 0) {
+                instance.idleSeconds = (instance.idleSeconds || 0) + 3;
+                if (instance.idleSeconds >= 900) {
+                    addLog(serverId, 'WARN', '[Auto-Shutdown] Server empty for 15 minutes. Automatically shutting down...');
+                    if (instance.process && instance.process.stdin) {
+                        instance.process.stdin.write('stop\n');
+                    }
+                    instance.idleSeconds = 0;
+                }
+            } else {
+                instance.idleSeconds = 0;
+            }
+        } else {
+            instance.idleSeconds = 0;
+        }
     });
 }, 3000);
 
@@ -382,11 +473,17 @@ app.get('/api/servers/:id/telemetry', async (req, res) => {
         } catch (e) {}
     }
     
+    const maxRamGb = 4;
+    const ramUsed = processRamGb || (instance.status === 'online' ? 2.1 : 0.0);
+    const ramPct = instance.status === 'online' ? Math.min(100, Math.round((ramUsed / maxRamGb) * 100)) : 0;
+
     res.json({
         tps: instance.status === 'online' ? 20.0 : 0.0,
         playersCount: instance.playersCount || 0,
-        ramUsedGb: processRamGb || (instance.status === 'online' ? 4.2 : 0.0),
-        ramPercent: instance.status === 'online' ? Math.round((processRamGb / 12) * 100) : 0,
+        ramUsedGb: ramUsed,
+        ramPercent: ramPct,
+        maxRamGb: maxRamGb,
+        creditsUsed: parseFloat((instance.creditsUsed !== undefined ? instance.creditsUsed : getCredits(id)).toFixed(2)),
         cpuPercent: processCpu || (instance.status === 'online' ? 18.5 : 0.0),
         hostCpuPercent: Math.round(os.loadavg()[0] * 10) || 12,
         hostUsedRamGb: parseFloat((hostUsedMem / (1024 * 1024 * 1024)).toFixed(1)),
@@ -461,7 +558,9 @@ app.get('/api/servers/:id/files', (req, res) => {
     if (!targetDir.startsWith(serverPath)) return res.status(403).json({ error: 'Access denied' });
     if (!fs.existsSync(targetDir)) return res.status(404).json({ error: 'Directory not found' });
     
-    const files = fs.readdirSync(targetDir).map(file => {
+    const files = fs.readdirSync(targetDir)
+        .filter(file => file.toLowerCase() !== 'user_jvm_args.txt')
+        .map(file => {
         const fullPath = path.join(targetDir, file);
         const stat = fs.statSync(fullPath);
         return {

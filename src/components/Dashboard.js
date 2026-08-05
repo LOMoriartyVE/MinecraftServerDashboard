@@ -83,22 +83,15 @@ export default function Dashboard() {
     }
   }, [toast.visible]);
 
-  // General Fetch Client that supports Proxy or Direct calls
+  // General Direct HTTPS Fetch Client
   const apiFetch = async (endpoint, options = {}) => {
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    const url = `${daemonUrl}${cleanEndpoint}`;
     
-    let url;
     const headers = new Headers(options.headers || {});
     headers.set('bypass-tunnel-reminder', 'true');
     if (!headers.has('Content-Type')) {
       headers.set('Content-Type', 'application/json');
-    }
-    
-    if (connectionMode === 'proxy') {
-      url = `/api/proxy${cleanEndpoint}`;
-      headers.set('x-target-url', daemonUrl);
-    } else {
-      url = `${daemonUrl}${cleanEndpoint}`;
     }
 
     const fetchOptions = {
@@ -338,31 +331,31 @@ export default function Dashboard() {
 
     if (!isConnected) {
       return (
-        <div className="flex-1 flex flex-col items-center justify-center p-6 bg-obsidian-950 text-slate-300">
-          <div className="max-w-md w-full glass-panel p-6 rounded-2xl text-center space-y-4 border border-rose-500/25">
-            <div className="w-12 h-12 bg-rose-500/10 text-rose-400 rounded-full flex items-center justify-center mx-auto">
-              <AlertOctagon className="w-6 h-6" />
+        <div className="flex-1 flex flex-col items-center justify-center p-6 bg-obsidian-950 text-slate-300 font-sans">
+          <div className="max-w-md w-full glass-panel p-6 rounded-2xl space-y-4 border border-obsidian-700">
+            <h3 className="font-bold text-white text-base text-center">Connect Local API Daemon</h3>
+            <div className="space-y-3">
+              <input
+                type="text"
+                defaultValue={daemonUrl}
+                placeholder="Paste your Daemon Link (e.g. https://xxx.trycloudflare.com)"
+                id="offline_daemon_url_input"
+                className="w-full bg-obsidian-900 border border-obsidian-700 focus:border-mcgreen-500 rounded-xl px-3 py-2 text-xs font-mono text-white outline-none"
+              />
+              <button 
+                onClick={() => {
+                  const val = document.getElementById('offline_daemon_url_input')?.value?.trim();
+                  if (val) {
+                    setDaemonUrl(val);
+                    localStorage.setItem('obsidian_daemon_url', val);
+                    showToast('Connecting to daemon...', 'info');
+                  }
+                }}
+                className="w-full bg-mcgreen-500 hover:bg-mcgreen-600 text-obsidian-950 font-bold py-2 rounded-xl text-xs transition-all shadow-lg shadow-mcgreen-500/20"
+              >
+                Connect Daemon
+              </button>
             </div>
-            <div>
-              <h3 className="font-bold text-white text-lg">Daemon Offline</h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Could not connect to the local ObsidianNode daemon. Please ensure the local API daemon is running on your PC.
-              </p>
-            </div>
-            <div className="bg-obsidian-900 border border-obsidian-700 rounded-xl p-3 text-left space-y-2 text-xs">
-              <p className="font-semibold text-slate-200">Troubleshooting Steps:</p>
-              <ol className="list-decimal pl-4 space-y-1.5 text-slate-400">
-                <li>Double-click <code className="text-mcgreen-400 font-mono">run-daemon.bat</code> in your server directory.</li>
-                <li>Copy the generated <code className="text-mcgreen-400 font-mono">https://*.loca.lt</code> URL from the terminal logs.</li>
-                <li>Enter the tunnel URL in the settings tab below.</li>
-              </ol>
-            </div>
-            <button 
-              onClick={() => setActiveTab('settings')}
-              className="w-full bg-mcgreen-500 hover:bg-mcgreen-600 text-obsidian-950 font-bold py-2 rounded-xl text-xs border border-mcgreen-500 transition-colors shadow-lg shadow-mcgreen-500/20"
-            >
-              Configure Settings
-            </button>
           </div>
         </div>
       );

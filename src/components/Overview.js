@@ -156,6 +156,38 @@ export default function Overview({
   return (
     <div className="space-y-6 font-sans">
       
+      {/* Exaroton-Style Server Credit Usage Tracker */}
+      <div className="glass-panel p-4 sm:p-5 rounded-2xl border border-mcgreen-500/30 bg-gradient-to-r from-obsidian-900 via-obsidian-850 to-obsidian-900 relative overflow-hidden">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-mcgreen-500/10 text-mcgreen-400 border border-mcgreen-500/20 flex items-center justify-center shrink-0">
+              <Zap className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-bold text-white uppercase tracking-wider">Server Credit Usage</h4>
+                <span className="text-[10px] bg-mcgreen-500/15 text-mcgreen-400 border border-mcgreen-500/30 px-2 py-0.5 rounded-full font-mono font-semibold">
+                  Formula: Uptime Hours × {telemetry?.maxRamGb || 4} GB RAM
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Tracks server resource consumption based on allocated RAM and uptime.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-baseline gap-2 bg-obsidian-950/80 px-4 py-2.5 rounded-xl border border-obsidian-700 shrink-0">
+            <span className="text-2xl font-black text-mcgreen-400 font-mono">
+              {(telemetry?.creditsUsed || 0.00).toFixed(2)}
+            </span>
+            <span className="text-xs font-bold text-slate-300 font-mono">credits</span>
+            <span className="text-[10px] text-slate-500 ml-1">
+              (≈ ${((telemetry?.creditsUsed || 0.00) * 0.01).toFixed(2)})
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* Stat Metric Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         
@@ -216,7 +248,7 @@ export default function Overview({
           <div className="flex items-baseline justify-between">
             <div>
               <span className="text-2xl font-extrabold text-white font-mono">{showRamGb}</span>
-              <span className="text-xs text-slate-400 font-mono">/ 12 GB</span>
+              <span className="text-xs text-slate-400 font-mono">/ {telemetry?.maxRamGb || 4} GB</span>
             </div>
             <span className="text-xs font-semibold text-purple-400 font-mono">{showRamPercent}%</span>
           </div>
