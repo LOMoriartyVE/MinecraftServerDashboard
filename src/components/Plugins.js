@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Puzzle, ToggleLeft, ToggleRight, Trash2, Save, RefreshCw, Search, 
   Download, CheckCircle2, AlertTriangle, X, Sparkles, Filter, Package,
-  Layers, Monitor, Server as ServerIcon, ShieldCheck, ChevronRight, History
+  Layers, Monitor, Server as ServerIcon, ShieldCheck, ChevronRight, History, HardDriveDownload
 } from 'lucide-react';
 
 export default function Plugins({ apiFetch, serverId, activeServer, showToast, daemonUrl }) {
