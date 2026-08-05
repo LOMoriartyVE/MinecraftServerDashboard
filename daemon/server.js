@@ -213,7 +213,15 @@ function saveCredits(serverId, credits) {
     } catch (e) { }
 }
 
-// Background TCP port monitor & 15-min idle auto-shutdown
+// Helper to check if Java process is running for serverId
+function checkJavaProcessRunning(serverId, callback) {
+    exec('tasklist /FI "IMAGENAME eq java.exe" /FO CSV /NH', (err, stdout) => {
+        if (err || !stdout || stdout.includes('No tasks')) return callback(false);
+        callback(true);
+    });
+}
+
+// Background TCP port monitor & process checker
 setInterval(() => {
     Object.keys(serverInstances).forEach(serverId => {
         const instance = serverInstances[serverId];
@@ -226,28 +234,33 @@ setInterval(() => {
         socket.setTimeout(1500);
         socket.on('connect', () => {
             socket.destroy();
-            if (instance.status === 'offline') {
+            if (instance.status !== 'online') {
                 instance.status = 'online';
                 broadcastStatus(serverId, 'online');
             }
-            if (instance.status === 'online') {
-                ensureLogTailer(serverId);
-            }
+            ensureLogTailer(serverId);
         });
-        socket.on('error', () => {
+
+        const handleOfflineOrProcess = () => {
             socket.destroy();
-            if (instance.status === 'online' || instance.status === 'stopping') {
-                instance.status = 'offline';
-                broadcastStatus(serverId, 'offline');
-            }
-        });
-        socket.on('timeout', () => {
-            socket.destroy();
-            if (instance.status === 'online' || instance.status === 'stopping') {
-                instance.status = 'offline';
-                broadcastStatus(serverId, 'offline');
-            }
-        });
+            checkJavaProcessRunning(serverId, (isJavaActive) => {
+                if (isJavaActive) {
+                    if (instance.status !== 'online') {
+                        instance.status = 'online';
+                        broadcastStatus(serverId, 'online');
+                    }
+                    ensureLogTailer(serverId);
+                } else {
+                    if (instance.status !== 'offline') {
+                        instance.status = 'offline';
+                        broadcastStatus(serverId, 'offline');
+                    }
+                }
+            });
+        };
+
+        socket.on('error', handleOfflineOrProcess);
+        socket.on('timeout', handleOfflineOrProcess);
         socket.connect(port, '127.0.0.1');
 
         // Credit usage & 15-minute idle shutdown timer
