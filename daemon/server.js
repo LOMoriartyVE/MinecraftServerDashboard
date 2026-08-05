@@ -191,6 +191,12 @@ function ensureLogTailer(serverId) {
                                         instance.lastPlayerExitTime = Date.now();
                                     }
                                 }
+                                if (cleanLine.includes('Done (') || cleanLine.includes('For help, type "help"')) {
+                                    if (instance.status !== 'online') {
+                                        instance.status = 'online';
+                                        broadcastStatus(serverId, 'online');
+                                    }
+                                }
 
                                 addLog(serverId, level, cleanLine);
                             });
@@ -224,11 +230,22 @@ function saveCredits(serverId, credits) {
     } catch (e) { }
 }
 
-// Helper to check if Java process is running for serverId
-function checkJavaProcessRunning(serverId, callback) {
-    exec('tasklist /FI "IMAGENAME eq java.exe" /FO CSV /NH', (err, stdout) => {
-        if (err || !stdout || stdout.includes('No tasks')) return callback(false);
-        callback(true);
+// Helper to check if a specific server process is running by PID or listening port
+function checkServerProcessRunning(serverId, port, callback) {
+    const instance = serverInstances[serverId];
+    if (instance && instance.process && instance.process.pid) {
+        try {
+            process.kill(instance.process.pid, 0);
+            return callback(true);
+        } catch (e) {
+            instance.process = null;
+        }
+    }
+
+    exec('netstat -aon', (err, stdout) => {
+        if (err || !stdout) return callback(false);
+        const isListening = stdout.split('\n').some(line => line.includes(`:${port}`) && line.includes('LISTENING'));
+        callback(isListening);
     });
 }
 
@@ -254,17 +271,33 @@ setInterval(() => {
 
         const handleOfflineOrProcess = () => {
             socket.destroy();
-            checkJavaProcessRunning(serverId, (isJavaActive) => {
-                if (isJavaActive) {
-                    if (instance.status !== 'online') {
-                        instance.status = 'online';
-                        broadcastStatus(serverId, 'online');
-                    }
-                    ensureLogTailer(serverId);
-                } else {
-                    if (instance.status !== 'offline') {
+            checkServerProcessRunning(serverId, port, (isProcessActive) => {
+                if (instance.status === 'starting') {
+                    // While starting, if process died, set to offline
+                    if (!isProcessActive) {
                         instance.status = 'offline';
                         broadcastStatus(serverId, 'offline');
+                    }
+                    // Otherwise stay in starting state until port opens or Done log appears
+                } else if (instance.status === 'stopping') {
+                    // While stopping, once process/port is inactive, set to offline
+                    if (!isProcessActive) {
+                        instance.status = 'offline';
+                        broadcastStatus(serverId, 'offline');
+                    }
+                } else if (instance.status === 'online') {
+                    // If marked online but TCP socket fails and process/port is dead
+                    if (!isProcessActive) {
+                        instance.status = 'offline';
+                        broadcastStatus(serverId, 'offline');
+                    }
+                } else {
+                    // Default offline state
+                    if (isProcessActive) {
+                        // Server running externally
+                        instance.status = 'online';
+                        broadcastStatus(serverId, 'online');
+                        ensureLogTailer(serverId);
                     }
                 }
             });
@@ -453,6 +486,13 @@ app.post('/api/servers/:id/power', (req, res) => {
                     }
                 }
 
+                if (cleanLine.includes('Done (') || cleanLine.includes('For help, type "help"')) {
+                    if (instance.status !== 'online') {
+                        instance.status = 'online';
+                        broadcastStatus(id, 'online');
+                    }
+                }
+
                 addLog(id, level, cleanLine);
             });
         });
@@ -477,9 +517,6 @@ app.post('/api/servers/:id/power', (req, res) => {
 
         instance.uptimeInterval = setInterval(() => {
             instance.uptimeSeconds++;
-            if (instance.status === 'starting' && instance.uptimeSeconds > 45) {
-                broadcastStatus(id, 'online');
-            }
         }, 1000);
 
         res.json({ success: true, message: 'Server is starting...' });
@@ -501,12 +538,17 @@ app.post('/api/servers/:id/power', (req, res) => {
         const index = Object.keys(serverInstances).indexOf(id);
         const serverPort = props['server-port'] || (25565 + (index >= 0 ? index : 0)).toString();
 
-        const killTimeout = action === 'kill' ? 200 : 2500;
+        const killTimeout = action === 'kill' ? 300 : 5000;
         setTimeout(() => {
             killProcessOnPort(serverPort, () => {
                 instance.status = 'offline';
                 broadcastStatus(id, 'offline');
                 addLog(id, 'INFO', 'Server process stopped completely.');
+                if (instance.uptimeInterval) {
+                    clearInterval(instance.uptimeInterval);
+                    instance.uptimeInterval = null;
+                }
+                instance.process = null;
             });
         }, killTimeout);
 
@@ -557,47 +599,6 @@ app.post('/api/servers/:id/console', (req, res) => {
     }
 });
 
-// Telemetry
-app.get('/api/servers/:id/telemetry', async (req, res) => {
-    const { id } = req.params;
-    const instance = serverInstances[id];
-    if (!instance) return res.status(404).json({ error: 'Server not found' });
-
-    const hostTotalMem = os.totalmem();
-    const hostFreeMem = os.freemem();
-    const hostUsedMem = hostTotalMem - hostFreeMem;
-
-    let processCpu = 0;
-    let processRamGb = 0;
-
-    if (instance.process && instance.process.pid) {
-        try {
-            const stats = await pidusage(instance.process.pid);
-            processCpu = Math.round(stats.cpu);
-            processRamGb = parseFloat((stats.memory / (1024 * 1024 * 1024)).toFixed(2));
-        } catch (e) { }
-    }
-
-    const maxRamGb = 4;
-    const ramUsed = processRamGb || (instance.status === 'online' ? 2.1 : 0.0);
-    const ramPct = instance.status === 'online' ? Math.min(100, Math.round((ramUsed / maxRamGb) * 100)) : 0;
-
-    let idleRemaining = 900;
-    if (instance.status === 'online') {
-        const activePlayers = instance.onlinePlayers || instance.playersCount || 0;
-        if (activePlayers === 0) {
-            if (!instance.lastPlayerExitTime) instance.lastPlayerExitTime = Date.now();
-            const elapsedSec = Math.floor((Date.now() - instance.lastPlayerExitTime) / 1000);
-            idleRemaining = Math.max(0, 900 - elapsedSec);
-        } else {
-            instance.lastPlayerExitTime = null;
-            idleRemaining = 900;
-        }
-    } else {
-        instance.lastPlayerExitTime = null;
-        idleRemaining = 900;
-    }
-
 // Native Windows CPU usage calculator using os.cpus()
 function getSystemCpuUsage() {
     const cpus = os.cpus();
@@ -617,6 +618,10 @@ function getSystemCpuUsage() {
     const idleDiff = idle - global._lastCpuIdle;
     global._lastCpuTotal = total;
     global._lastCpuIdle = idle;
+    if (totalDiff <= 0) return 8;
+    return Math.max(1, Math.min(100, Math.round(((totalDiff - idleDiff) / totalDiff) * 100)));
+}
+
 function getFolderSizeBytes(dirPath) {
     let size = 0;
     if (!fs.existsSync(dirPath)) return 0;
@@ -658,6 +663,47 @@ function getWorldSizeInfo(serverId) {
     }
     return { bytes, mb, formatted };
 }
+
+// Telemetry
+app.get('/api/servers/:id/telemetry', async (req, res) => {
+    const { id } = req.params;
+    const instance = serverInstances[id];
+    if (!instance) return res.status(404).json({ error: 'Server not found' });
+
+    const hostTotalMem = os.totalmem();
+    const hostFreeMem = os.freemem();
+    const hostUsedMem = hostTotalMem - hostFreeMem;
+
+    let processCpu = 0;
+    let processRamGb = 0;
+
+    if (instance.process && instance.process.pid) {
+        try {
+            const stats = await pidusage(instance.process.pid);
+            processCpu = Math.round(stats.cpu);
+            processRamGb = parseFloat((stats.memory / (1024 * 1024 * 1024)).toFixed(2));
+        } catch (e) { }
+    }
+
+    const maxRamGb = 4;
+    const ramUsed = processRamGb || (instance.status === 'online' ? 2.1 : 0.0);
+    const ramPct = instance.status === 'online' ? Math.min(100, Math.round((ramUsed / maxRamGb) * 100)) : 0;
+
+    let idleRemaining = 900;
+    if (instance.status === 'online') {
+        const activePlayers = instance.onlinePlayers || instance.playersCount || 0;
+        if (activePlayers === 0) {
+            if (!instance.lastPlayerExitTime) instance.lastPlayerExitTime = Date.now();
+            const elapsedSec = Math.floor((Date.now() - instance.lastPlayerExitTime) / 1000);
+            idleRemaining = Math.max(0, 900 - elapsedSec);
+        } else {
+            instance.lastPlayerExitTime = null;
+            idleRemaining = 900;
+        }
+    } else {
+        instance.lastPlayerExitTime = null;
+        idleRemaining = 900;
+    }
 
     const worldInfo = getWorldSizeInfo(id);
 
