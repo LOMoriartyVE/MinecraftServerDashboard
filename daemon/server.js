@@ -754,13 +754,90 @@ app.post('/api/servers/:id/mods/toggle', async (req, res) => {
     res.json({ success: true, newFilename: targetFilename, enabled });
 });
 
-// Search Modrinth API for Minecraft Mods
+// --- Server Versioning & Change Log Helper ---
+function getServerVersionInfo(serverId) {
+    const serverPath = getServerWorkingDir(serverId);
+    const verPath = path.join(serverPath, 'version.json');
+    if (fs.existsSync(verPath)) {
+        try {
+            return JSON.parse(fs.readFileSync(verPath, 'utf8'));
+        } catch(e) {}
+    }
+    return {
+        version: '1.0.0',
+        lastUpdated: new Date().toISOString(),
+        changelog: [{ version: '1.0.0', change: 'Initial server setup', date: new Date().toISOString() }]
+    };
+}
+
+function bumpServerVersion(serverId, changeDescription) {
+    const info = getServerVersionInfo(serverId);
+    const parts = info.version.split('.').map(Number);
+    parts[2] = (parts[2] || 0) + 1;
+    const newVer = parts.join('.');
+    
+    info.version = newVer;
+    info.lastUpdated = new Date().toISOString();
+    if (!info.changelog) info.changelog = [];
+    info.changelog.unshift({ version: newVer, change: changeDescription, date: new Date().toISOString() });
+    
+    const serverPath = getServerWorkingDir(serverId);
+    try {
+        fs.writeFileSync(path.join(serverPath, 'version.json'), JSON.stringify(info, null, 2));
+    } catch(e) {}
+    
+    return info;
+}
+
+// Endpoint: Server Version & Changelog
+app.get('/api/servers/:id/version', (req, res) => {
+    const { id } = req.params;
+    res.json(getServerVersionInfo(id));
+});
+
+// Endpoint: Download Client Mods Pack (.zip)
+app.get('/api/servers/:id/mods/download-client-pack', async (req, res) => {
+    const { id } = req.params;
+    const serverPath = getServerWorkingDir(id);
+    let modsDir = path.join(serverPath, 'mods');
+    if (!fs.existsSync(modsDir) && fs.existsSync(path.join(serverPath, 'Mods'))) {
+        modsDir = path.join(serverPath, 'Mods');
+    }
+    
+    if (!fs.existsSync(modsDir)) {
+        return res.status(404).json({ error: 'Mods directory not found' });
+    }
+
+    const versionInfo = getServerVersionInfo(id);
+    const tempZipName = `Client_Mods_${id}_v${versionInfo.version}.zip`;
+    const tempZipPath = path.join(os.tmpdir(), tempZipName);
+    
+    const psCmd = `powershell -Command "Compress-Archive -Path '${modsDir}\\*.jar' -DestinationPath '${tempZipPath}' -Force"`;
+    exec(psCmd, (err) => {
+        if (err || !fs.existsSync(tempZipPath)) {
+            return res.status(500).json({ error: 'Failed to generate client mods zip package' });
+        }
+        
+        res.download(tempZipPath, tempZipName, (err) => {
+            try { fs.unlinkSync(tempZipPath); } catch(e) {}
+        });
+    });
+});
+
+// Search Modrinth API for Minecraft Mods with Enriched Facets
 app.get('/api/mods/search', async (req, res) => {
     const query = req.query.query || '';
-    if (!query) return res.json([]);
+    const loader = req.query.loader || '';
+    const version = req.query.version || '';
+    
+    if (!query && !loader && !version) return res.json([]);
     
     try {
-        const modrinthUrl = `https://api.modrinth.com/v2/search?query=${encodeURIComponent(query)}&limit=15&facets=[["project_type:mod"]]`;
+        const facets = [['project_type:mod']];
+        if (loader && loader !== 'all') facets.push([`categories:${loader.toLowerCase()}`]);
+        if (version && version !== 'all') facets.push([`versions:${version}`]);
+
+        const modrinthUrl = `https://api.modrinth.com/v2/search?query=${encodeURIComponent(query)}&limit=20&facets=${encodeURIComponent(JSON.stringify(facets))}`;
         const apiRes = await fetch(modrinthUrl, {
             headers: { 'User-Agent': 'ObsidianNode-Minecraft-Panel/1.0.0' }
         });
@@ -771,12 +848,16 @@ app.get('/api/mods/search', async (req, res) => {
         const results = (data.hits || []).map(hit => ({
             id: hit.project_id,
             slug: hit.slug,
+            source: 'Modrinth',
             title: hit.title,
             description: hit.description,
             iconUrl: hit.icon_url,
             author: hit.author,
             downloads: hit.downloads,
-            categories: hit.categories || []
+            categories: hit.categories || [],
+            gameVersions: hit.versions || [],
+            clientSide: hit.client_side || 'optional',
+            serverSide: hit.server_side || 'optional'
         }));
         
         res.json(results);
@@ -785,10 +866,36 @@ app.get('/api/mods/search', async (req, res) => {
     }
 });
 
+// Get Mod Versions Matrix (Modrinth)
+app.get('/api/mods/:projectId/versions', async (req, res) => {
+    const { projectId } = req.params;
+    try {
+        const versionUrl = `https://api.modrinth.com/v2/project/${projectId}/version`;
+        const vRes = await fetch(versionUrl, {
+            headers: { 'User-Agent': 'ObsidianNode-Minecraft-Panel/1.0.0' }
+        });
+        if (!vRes.ok) return res.status(404).json({ error: 'Failed to fetch versions' });
+        const versions = await vRes.json();
+        res.json(versions.map(v => ({
+            id: v.id,
+            name: v.name,
+            versionNumber: v.version_number,
+            gameVersions: v.game_versions || [],
+            loaders: v.loaders || [],
+            datePublished: v.date_published,
+            downloads: v.downloads || 0,
+            fileUrl: (v.files.find(f => f.primary) || v.files[0])?.url,
+            filename: (v.files.find(f => f.primary) || v.files[0])?.filename
+        })));
+    } catch(err) {
+        res.status(500).json({ error: `Failed to load versions: ${err.message}` });
+    }
+});
+
 // Install Mod from Modrinth 1-Click
 app.post('/api/servers/:id/mods/install-remote', async (req, res) => {
     const { id } = req.params;
-    const { projectId, title } = req.body;
+    const { projectId, title, fileUrl, filename } = req.body;
     
     const serverPath = getServerWorkingDir(id);
     let modsDir = path.join(serverPath, 'mods');
@@ -798,31 +905,40 @@ app.post('/api/servers/:id/mods/install-remote', async (req, res) => {
     if (!fs.existsSync(modsDir)) fs.mkdirSync(modsDir, { recursive: true });
     
     try {
-        const versionUrl = `https://api.modrinth.com/v2/project/${projectId}/version`;
-        const vRes = await fetch(versionUrl, {
-            headers: { 'User-Agent': 'ObsidianNode-Minecraft-Panel/1.0.0' }
-        });
-        
-        if (!vRes.ok) return res.status(404).json({ error: 'Failed to fetch mod version' });
-        const versions = await vRes.json();
-        if (!versions || versions.length === 0) return res.status(404).json({ error: 'No downloadable versions found' });
-        
-        const latestVersion = versions[0];
-        const primaryFile = (latestVersion.files || []).find(f => f.primary) || latestVersion.files[0];
-        if (!primaryFile || !primaryFile.url) return res.status(404).json({ error: 'No .jar file download link available' });
-        
+        let targetUrl = fileUrl;
+        let targetFilename = filename;
+
+        if (!targetUrl) {
+            const versionUrl = `https://api.modrinth.com/v2/project/${projectId}/version`;
+            const vRes = await fetch(versionUrl, {
+                headers: { 'User-Agent': 'ObsidianNode-Minecraft-Panel/1.0.0' }
+            });
+            if (!vRes.ok) return res.status(404).json({ error: 'Failed to fetch mod version' });
+            const versions = await vRes.json();
+            if (!versions || versions.length === 0) return res.status(404).json({ error: 'No downloadable versions found' });
+            
+            const latestVersion = versions[0];
+            const primaryFile = (latestVersion.files || []).find(f => f.primary) || latestVersion.files[0];
+            if (!primaryFile || !primaryFile.url) return res.status(404).json({ error: 'No .jar file download link available' });
+            targetUrl = primaryFile.url;
+            targetFilename = primaryFile.filename;
+        }
+
         // Safety backup before downloading new mod!
         try { await createWorldBackup(id, `Pre-Installation Backup: ${title || projectId}`); } catch(e) {}
         
-        const fileRes = await fetch(primaryFile.url);
+        const fileRes = await fetch(targetUrl);
         const arrayBuffer = await fileRes.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
         
-        const targetFilePath = path.join(modsDir, primaryFile.filename);
+        const targetFilePath = path.join(modsDir, targetFilename);
         fs.writeFileSync(targetFilePath, buffer);
         
-        addLog(id, 'INFO', `Installed mod "${title || primaryFile.filename}" directly from Modrinth into mods/`);
-        res.json({ success: true, filename: primaryFile.filename, title });
+        // Bump server version
+        bumpServerVersion(id, `Installed mod: ${title || targetFilename}`);
+        
+        addLog(id, 'INFO', `Installed mod "${title || targetFilename}" directly from Modrinth into mods/`);
+        res.json({ success: true, filename: targetFilename, title });
     } catch(err) {
         res.status(500).json({ error: `Installation failed: ${err.message}` });
     }
