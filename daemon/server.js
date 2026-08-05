@@ -216,18 +216,20 @@ setInterval(() => {
                 instance.status = 'online';
                 broadcastStatus(serverId, 'online');
             }
-            ensureLogTailer(serverId);
+            if (instance.status === 'online') {
+                ensureLogTailer(serverId);
+            }
         });
         socket.on('error', () => {
             socket.destroy();
-            if (instance.status === 'online' && !instance.process) {
+            if (instance.status === 'online' || instance.status === 'stopping') {
                 instance.status = 'offline';
                 broadcastStatus(serverId, 'offline');
             }
         });
         socket.on('timeout', () => {
             socket.destroy();
-            if (instance.status === 'online' && !instance.process) {
+            if (instance.status === 'online' || instance.status === 'stopping') {
                 instance.status = 'offline';
                 broadcastStatus(serverId, 'offline');
             }
@@ -389,6 +391,7 @@ app.post('/api/servers/:id/power', (req, res) => {
             return res.json({ success: true, message: 'Server is already offline' });
         }
         
+        instance.status = 'stopping';
         broadcastStatus(id, 'stopping');
         addLog(id, 'WARN', action === 'kill' ? 'Force killing server process...' : 'Stopping server via console command...');
         
