@@ -641,11 +641,20 @@ function getWorldSizeInfo(serverId) {
     if (!fs.existsSync(worldDir) && fs.existsSync(path.join(workingDir, 'data', 'world'))) {
         worldDir = path.join(workingDir, 'data', 'world');
     }
+    
+    const props = readServerProperties(workingDir);
+    if (props['level-name']) {
+        const customWorld = path.join(workingDir, props['level-name']);
+        if (fs.existsSync(customWorld)) worldDir = customWorld;
+    }
+
     const bytes = getFolderSizeBytes(worldDir);
     const mb = parseFloat((bytes / (1024 * 1024)).toFixed(2));
-    let formatted = `${mb} MB`;
-    if (mb > 1024) {
+    let formatted = `${mb.toFixed(2)} MB`;
+    if (mb >= 1024) {
         formatted = `${(mb / 1024).toFixed(2)} GB`;
+    } else if (mb < 0.01 && bytes > 0) {
+        formatted = `${(bytes / 1024).toFixed(2)} KB`;
     }
     return { bytes, mb, formatted };
 }

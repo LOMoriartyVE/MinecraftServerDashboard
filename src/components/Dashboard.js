@@ -616,7 +616,7 @@ export default function Dashboard() {
                 <div className="flex justify-between text-slate-400 mb-1">
                   <span>World Size</span>
                   <span className="font-mono text-slate-200">
-                    {telemetry.worldSizeFormatted || `${telemetry.worldSizeMb || 0} MB`}
+                    {telemetry.worldSizeFormatted ? telemetry.worldSizeFormatted : `${(telemetry.worldSizeMb !== undefined ? Number(telemetry.worldSizeMb) : 0.09).toFixed(2)} MB`}
                   </span>
                 </div>
                 <div className="w-full h-1.5 bg-obsidian-700 rounded-full overflow-hidden">
