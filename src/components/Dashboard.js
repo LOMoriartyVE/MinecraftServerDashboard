@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Box, Terminal, Users, Puzzle, FolderTree, HardDriveDownload, 
   Sliders, ChevronDown, PlusCircle, Cpu, LogOut, CheckCircle, 
-  AlertTriangle, AlertOctagon, Info, Bell, Power, Menu, X, RefreshCw
+  AlertTriangle, AlertOctagon, Info, Bell, Power, Menu, X, RefreshCw, Clock
 } from 'lucide-react';
 
 import Overview from './Overview';
