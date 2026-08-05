@@ -543,11 +543,31 @@ export default function Plugins({ apiFetch, serverId, activeServer, showToast, d
                           {cat}
                         </span>
                       ))}
-                      <span className="px-2 py-0.5 rounded text-[9px] font-mono bg-obsidian-950 text-purple-400 border border-obsidian-700 flex items-center gap-1">
-                        <Monitor className="w-3 h-3 text-blue-400" />
-                        <ServerIcon className="w-3 h-3 text-mcgreen-400" />
-                        {result.clientSide === 'required' && result.serverSide === 'required' ? 'Client & Server' : 'Universal'}
-                      </span>
+                      {(() => {
+                        const clientSide = result.clientSide || 'optional';
+                        const serverSide = result.serverSide || 'optional';
+                        let label = 'Client & Server Both';
+                        let color = 'bg-purple-500/15 text-purple-300 border-purple-500/30';
+
+                        if (clientSide === 'required' && serverSide === 'unsupported') {
+                          label = 'Client-Side Only';
+                          color = 'bg-blue-500/15 text-blue-400 border-blue-500/30';
+                        } else if (clientSide === 'unsupported' && serverSide === 'required') {
+                          label = 'Server-Side Only';
+                          color = 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+                        } else if (clientSide === 'optional' && serverSide === 'optional') {
+                          label = 'Client & Server (Optional)';
+                          color = 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
+                        }
+
+                        return (
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-mono border flex items-center gap-1 font-semibold ${color}`}>
+                            <Monitor className="w-3 h-3" />
+                            <ServerIcon className="w-3 h-3" />
+                            {label}
+                          </span>
+                        );
+                      })()}
                     </div>
                   </div>
 

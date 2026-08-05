@@ -148,7 +148,9 @@ export default function Dashboard() {
           }
         }
       }
-      setIsConnected(false);
+      if (!localStorage.getItem('obsidian_daemon_url')) {
+        setIsConnected(false);
+      }
     }
   };
 
@@ -677,6 +679,37 @@ export default function Dashboard() {
                     }`} />
                     {activeServerInfo.status.toUpperCase()}
                   </span>
+                )}
+
+                {/* Small Auto-Shutdown Timer Badge with Hover Tooltip */}
+                {activeServerInfo?.status === 'online' && (
+                  <div 
+                    className="group relative inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 cursor-help shrink-0"
+                    title="15-Minute Empty Server Auto-Shutdown Timer"
+                  >
+                    <Clock className="w-3 h-3 text-amber-400" />
+                    <span>
+                      {(() => {
+                        const sec = telemetry?.idleSecondsRemaining;
+                        if (sec === undefined || sec === null) return '15m 00s';
+                        const m = Math.floor(sec / 60);
+                        const s = sec % 60;
+                        return `${m}m ${s < 10 ? '0' : ''}${s}s`;
+                      })()}
+                    </span>
+
+                    {/* Hover Info Tooltip */}
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 hidden group-hover:block z-50 w-52 p-2.5 bg-obsidian-950 text-slate-200 text-[10px] rounded-xl border border-obsidian-700 shadow-2xl font-sans text-center leading-relaxed">
+                      <div className="font-bold text-amber-400 flex items-center justify-center gap-1">
+                        <Clock className="w-3 h-3" /> Auto-Shutdown Timer
+                      </div>
+                      <p className="text-[9px] text-slate-400 mt-1">
+                        {(telemetry?.playersCount || 0) === 0 
+                          ? 'Server empty (0 players). Automatically turns off server when timer reaches 00m 00s.' 
+                          : 'Timer is paused while players are active online.'}
+                      </p>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>

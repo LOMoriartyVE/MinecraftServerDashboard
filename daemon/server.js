@@ -256,9 +256,10 @@ setInterval(() => {
             instance.creditsUsed = (instance.creditsUsed !== undefined ? instance.creditsUsed : getCredits(serverId)) + ((ram * 3) / 3600);
             saveCredits(serverId, instance.creditsUsed);
 
-            const playersCount = instance.onlinePlayers || 0;
+            const playersCount = instance.onlinePlayers || instance.playersCount || 0;
             if (playersCount === 0) {
                 instance.idleSeconds = (instance.idleSeconds || 0) + 3;
+                instance.idleSecondsRemaining = Math.max(0, 900 - instance.idleSeconds);
                 if (instance.idleSeconds >= 900) {
                     addLog(serverId, 'WARN', '[Auto-Shutdown] Server empty for 15 minutes. Automatically shutting down...');
                     if (instance.process && instance.process.stdin) {
@@ -269,9 +270,11 @@ setInterval(() => {
                         broadcastStatus(serverId, 'offline');
                     });
                     instance.idleSeconds = 0;
+                    instance.idleSecondsRemaining = 900;
                 }
             } else {
                 instance.idleSeconds = 0;
+                instance.idleSecondsRemaining = 900;
             }
         } else {
             instance.idleSeconds = 0;
@@ -650,7 +653,7 @@ async function createWorldBackup(serverId, triggerSource = 'Manual') {
     const backupFilePath = path.join(backupsDir, backupFileName);
     
     return new Promise((resolve) => {
-        const psCmd = `powershell -Command "Compress-Archive -Path '${worldPath}\\*' -DestinationPath '${backupFilePath}' -Force -ErrorAction SilentlyContinue"`;
+        const psCmd = `powershell -Command "Add-Type -Assembly 'System.IO.Compression.FileSystem'; [System.IO.Compression.ZipFile]::CreateFromDirectory('${worldPath}', '${backupFilePath}')"`;
         exec(psCmd, (err) => {
             let newSizeMb = '0.00';
             if (fs.existsSync(backupFilePath)) {
