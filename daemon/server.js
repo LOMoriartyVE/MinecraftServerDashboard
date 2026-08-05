@@ -37,7 +37,7 @@ function getServersList() {
     if (!fs.existsSync(SERVERS_DIR)) {
         fs.mkdirSync(SERVERS_DIR, { recursive: true });
     }
-    
+
     return fs.readdirSync(SERVERS_DIR)
         .filter(file => {
             const fullPath = path.join(SERVERS_DIR, file);
@@ -48,7 +48,7 @@ function getServersList() {
             const props = readServerProperties(serverPath);
             const defaultPort = (25565 + index).toString();
             const serverPort = props['server-port'] || defaultPort;
-            
+
             if (!serverInstances[folderName]) {
                 serverInstances[folderName] = {
                     id: folderName,
@@ -60,7 +60,7 @@ function getServersList() {
                     clients: new Set()
                 };
             }
-            
+
             return {
                 id: folderName,
                 name: folderName.replace(/_/g, ' '),
@@ -110,7 +110,7 @@ function addLog(serverId, level, msg) {
     if (instance.logs.length > 200) {
         instance.logs.shift();
     }
-    
+
     const payload = JSON.stringify({ type: 'log', log: logObj });
     instance.clients.forEach(ws => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -136,15 +136,15 @@ function broadcastStatus(serverId, status) {
 function ensureLogTailer(serverId) {
     const instance = serverInstances[serverId];
     if (!instance || instance.logWatcher) return;
-    
+
     const logFilePath = path.join(SERVERS_DIR, serverId, 'logs', 'latest.log');
     if (!fs.existsSync(logFilePath)) return;
-    
+
     let lastSize = 0;
     try {
         lastSize = fs.statSync(logFilePath).size;
-    } catch(e) {}
-    
+    } catch (e) { }
+
     try {
         const watcher = fs.watch(logFilePath, (eventType) => {
             if (eventType === 'change') {
@@ -157,7 +157,7 @@ function ensureLogTailer(serverId) {
                             encoding: 'utf8'
                         });
                         lastSize = stats.size;
-                        
+
                         let buffer = '';
                         stream.on('data', chunk => { buffer += chunk; });
                         stream.on('end', () => {
@@ -173,11 +173,11 @@ function ensureLogTailer(serverId) {
                     } else if (stats.size < lastSize) {
                         lastSize = stats.size;
                     }
-                } catch(e) {}
+                } catch (e) { }
             }
         });
         instance.logWatcher = watcher;
-    } catch(e) {}
+    } catch (e) { }
 }
 
 // Server Credit tracking helper (Credits = Uptime Hours * Allocated RAM GB)
@@ -187,7 +187,7 @@ function getCredits(serverId) {
         try {
             const data = JSON.parse(fs.readFileSync(creditsPath, 'utf8'));
             return parseFloat(data.creditsUsed || 0.0);
-        } catch(e) {}
+        } catch (e) { }
     }
     return 0.0;
 }
@@ -196,7 +196,7 @@ function saveCredits(serverId, credits) {
     const creditsPath = path.join(SERVERS_DIR, serverId, 'credits.json');
     try {
         fs.writeFileSync(creditsPath, JSON.stringify({ creditsUsed: parseFloat(credits.toFixed(4)) }));
-    } catch(e) {}
+    } catch (e) { }
 }
 
 // Background TCP port monitor & 15-min idle auto-shutdown
@@ -301,12 +301,12 @@ function killProcessOnPort(port, callback) {
                 }
             }
         });
-        
+
         if (pids.size === 0) {
             if (callback) callback();
             return;
         }
-        
+
         let killedCount = 0;
         pids.forEach(pid => {
             exec(`taskkill /F /T /PID ${pid}`, () => {
@@ -323,20 +323,20 @@ function killProcessOnPort(port, callback) {
 app.post('/api/servers/:id/power', (req, res) => {
     const { id } = req.params;
     const { action } = req.body;
-    
+
     const instance = serverInstances[id];
     if (!instance) return res.status(404).json({ error: 'Server not found' });
     const serverPath = path.join(SERVERS_DIR, id);
-    
+
     if (action === 'start') {
         if (instance.status === 'online' || instance.status === 'starting') {
             return res.json({ success: true, message: 'Server is already running or starting' });
         }
-        
+
         instance.status = 'starting';
         broadcastStatus(id, 'starting');
         addLog(id, 'INFO', 'Initiating server startup sequence...');
-        
+
         let startCmd = null;
         const scripts = ['run.bat', 'startserver.bat', 'start.bat'];
         for (const s of scripts) {
@@ -345,7 +345,7 @@ app.post('/api/servers/:id/power', (req, res) => {
                 break;
             }
         }
-        
+
         if (startCmd) {
             instance.process = spawn('cmd.exe', ['/c', startCmd], { cwd: serverPath });
         } else {
@@ -353,11 +353,11 @@ app.post('/api/servers/:id/power', (req, res) => {
             const serverJar = jarFiles[0] || 'server.jar';
             instance.process = spawn('java', ['-Xmx4G', '-Xms4G', '-jar', serverJar, 'nogui'], { cwd: serverPath });
         }
-        
+
         instance.uptimeSeconds = 0;
         instance.playersCount = 0;
         instance.playersRoster = [];
-        
+
         instance.process.stdout.on('data', (data) => {
             const text = data.toString().trim();
             if (!text) return;
@@ -366,7 +366,7 @@ app.post('/api/servers/:id/power', (req, res) => {
                 let level = 'INFO';
                 if (cleanLine.includes('WARN')) level = 'WARN';
                 if (cleanLine.includes('ERROR') || cleanLine.includes('Exception')) level = 'ERROR';
-                
+
                 if (cleanLine.includes('logged in with entity id')) {
                     const match = cleanLine.match(/([a-zA-Z0-9_]+)\[\/([0-9.:]+)\] logged in/);
                     if (match) {
@@ -383,7 +383,7 @@ app.post('/api/servers/:id/power', (req, res) => {
                         addLog(id, 'INFO', `Player ${name} (${ip}) joined the game.`);
                     }
                 }
-                
+
                 if (cleanLine.includes('left the game')) {
                     const match = cleanLine.match(/([a-zA-Z0-9_]+) left the game/);
                     if (match) {
@@ -395,11 +395,11 @@ app.post('/api/servers/:id/power', (req, res) => {
                         addLog(id, 'INFO', `Player ${name} left the game.`);
                     }
                 }
-                
+
                 addLog(id, level, cleanLine);
             });
         });
-        
+
         instance.process.stderr.on('data', (data) => {
             const text = data.toString().trim();
             if (!text) return;
@@ -407,7 +407,7 @@ app.post('/api/servers/:id/power', (req, res) => {
                 addLog(id, 'ERROR', line.trim());
             });
         });
-        
+
         instance.process.on('close', (code) => {
             addLog(id, 'INFO', `Server process stopped with exit code ${code}`);
             broadcastStatus(id, 'offline');
@@ -417,33 +417,33 @@ app.post('/api/servers/:id/power', (req, res) => {
             }
             instance.process = null;
         });
-        
+
         instance.uptimeInterval = setInterval(() => {
             instance.uptimeSeconds++;
             if (instance.status === 'starting' && instance.uptimeSeconds > 45) {
                 broadcastStatus(id, 'online');
             }
         }, 1000);
-        
+
         res.json({ success: true, message: 'Server is starting...' });
-        
+
     } else if (action === 'stop' || action === 'kill') {
         if (instance.status === 'offline') {
             return res.json({ success: true, message: 'Server is already offline' });
         }
-        
+
         instance.status = 'stopping';
         broadcastStatus(id, 'stopping');
         addLog(id, 'WARN', action === 'kill' ? 'Force killing server process...' : 'Stopping server via console command...');
-        
+
         if (instance.process && instance.process.stdin) {
-            try { instance.process.stdin.write('stop\n'); } catch(e) {}
+            try { instance.process.stdin.write('stop\n'); } catch (e) { }
         }
-        
+
         const props = readServerProperties(serverPath);
         const index = Object.keys(serverInstances).indexOf(id);
         const serverPort = props['server-port'] || (25565 + (index >= 0 ? index : 0)).toString();
-        
+
         const killTimeout = action === 'kill' ? 200 : 2500;
         setTimeout(() => {
             killProcessOnPort(serverPort, () => {
@@ -452,7 +452,7 @@ app.post('/api/servers/:id/power', (req, res) => {
                 addLog(id, 'INFO', 'Server process stopped completely.');
             });
         }, killTimeout);
-        
+
         res.json({ success: true, message: 'Server shutdown initiated...' });
     } else if (action === 'restart') {
         if (instance.process && instance.process.stdin) {
@@ -483,14 +483,14 @@ app.get('/api/servers/:id/logs', (req, res) => {
 app.post('/api/servers/:id/console', (req, res) => {
     const { id } = req.params;
     const { command } = req.body;
-    
+
     const instance = serverInstances[id];
     if (!instance) return res.status(404).json({ error: 'Server not found' });
-    
+
     if (instance.status !== 'online' && instance.status !== 'starting') {
         return res.status(400).json({ error: 'Server process is offline' });
     }
-    
+
     if (instance.process && instance.process.stdin) {
         addLog(id, 'INFO', `CONSOLE issued server command: ${command}`);
         instance.process.stdin.write(`${command}\n`);
@@ -505,22 +505,22 @@ app.get('/api/servers/:id/telemetry', async (req, res) => {
     const { id } = req.params;
     const instance = serverInstances[id];
     if (!instance) return res.status(404).json({ error: 'Server not found' });
-    
+
     const hostTotalMem = os.totalmem();
     const hostFreeMem = os.freemem();
     const hostUsedMem = hostTotalMem - hostFreeMem;
-    
+
     let processCpu = 0;
     let processRamGb = 0;
-    
+
     if (instance.process && instance.process.pid) {
         try {
             const stats = await pidusage(instance.process.pid);
             processCpu = Math.round(stats.cpu);
             processRamGb = parseFloat((stats.memory / (1024 * 1024 * 1024)).toFixed(2));
-        } catch (e) {}
+        } catch (e) { }
     }
-    
+
     const maxRamGb = 4;
     const ramUsed = processRamGb || (instance.status === 'online' ? 2.1 : 0.0);
     const ramPct = instance.status === 'online' ? Math.min(100, Math.round((ramUsed / maxRamGb) * 100)) : 0;
@@ -551,10 +551,10 @@ app.get('/api/servers/:id/players', (req, res) => {
 app.post('/api/servers/:id/players/:username/action', (req, res) => {
     const { id, username } = req.params;
     const { action } = req.body;
-    
+
     const instance = serverInstances[id];
     if (!instance) return res.status(404).json({ error: 'Server not found' });
-    
+
     if (instance.process && instance.process.stdin) {
         if (action === 'kick') instance.process.stdin.write(`kick ${username} Kicked by Dashboard\n`);
         else if (action === 'ban') instance.process.stdin.write(`ban ${username}\n`);
@@ -567,33 +567,185 @@ app.post('/api/servers/:id/players/:username/action', (req, res) => {
     }
 });
 
-// Mods (case-insensitive Mods/mods support)
+// World Auto-Backup Helper with In-Game Announcement & Size Reporting
+async function createWorldBackup(serverId, triggerSource = 'Manual') {
+    const instance = serverInstances[serverId];
+    const serverPath = path.join(SERVERS_DIR, serverId);
+    const worldPath = path.join(serverPath, 'world');
+    const backupsDir = path.join(serverPath, 'backups');
+    
+    if (!fs.existsSync(worldPath)) return { success: false, error: 'World folder not found' };
+    if (!fs.existsSync(backupsDir)) fs.mkdirSync(backupsDir, { recursive: true });
+    
+    // Broadcast in-game message if server is online
+    if (instance && instance.status === 'online' && instance.process && instance.process.stdin) {
+        try {
+            instance.process.stdin.write('say §e[ObsidianNode] Auto-Backup starting... Please wait.\n');
+        } catch(e) {}
+    }
+    
+    function getDirSize(dirPath) {
+        let size = 0;
+        if (!fs.existsSync(dirPath)) return 0;
+        try {
+            const files = fs.readdirSync(dirPath);
+            for (const file of files) {
+                const filePath = path.join(dirPath, file);
+                const stat = fs.statSync(filePath);
+                if (stat.isDirectory()) {
+                    size += getDirSize(filePath);
+                } else {
+                    size += stat.size;
+                }
+            }
+        } catch(e) {}
+        return size;
+    }
+    
+    const oldSizeBytes = getDirSize(worldPath);
+    const oldSizeMb = (oldSizeBytes / (1024 * 1024)).toFixed(2);
+    
+    const now = new Date();
+    const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const backupFileName = `world_${timestamp}.zip`;
+    const backupFilePath = path.join(backupsDir, backupFileName);
+    
+    return new Promise((resolve) => {
+        const psCmd = `powershell -Command "Compress-Archive -Path '${worldPath}\\*' -DestinationPath '${backupFilePath}' -Force"`;
+        exec(psCmd, (err) => {
+            let newSizeMb = '0.00';
+            try {
+                const backupStat = fs.statSync(backupFilePath);
+                newSizeMb = (backupStat.size / (1024 * 1024)).toFixed(2);
+            } catch(e) {}
+            
+            const logMsg = `[ObsidianNode Backup] (${triggerSource}) Completed! Original World Size: ${oldSizeMb} MB -> Compressed Backup: ${newSizeMb} MB`;
+            addLog(serverId, 'INFO', logMsg);
+            
+            if (instance && instance.status === 'online' && instance.process && instance.process.stdin) {
+                try {
+                    instance.process.stdin.write(`say §a[ObsidianNode] Backup complete! World size: ${oldSizeMb} MB -> Compressed: ${newSizeMb} MB\n`);
+                } catch(e) {}
+            }
+            
+            resolve({
+                success: true,
+                filename: backupFileName,
+                oldSizeMb,
+                newSizeMb,
+                timestamp: now.toISOString()
+            });
+        });
+    });
+}
+
+// 24-Hour Auto-Backup Scheduler (Runs once per 24 hours)
+setInterval(() => {
+    Object.keys(serverInstances).forEach(async (serverId) => {
+        const instance = serverInstances[serverId];
+        const now = Date.now();
+        const lastBackup = instance.last24hBackup || 0;
+        if (now - lastBackup >= 86400000) {
+            instance.last24hBackup = now;
+            await createWorldBackup(serverId, 'Daily 24-Hour Scheduled Auto-Backup');
+        }
+    });
+}, 3600000);
+
+// Backup API Endpoint
+app.post('/api/servers/:id/backups/create', async (req, res) => {
+    const { id } = req.params;
+    const result = await createWorldBackup(id, 'Manual Dashboard Action');
+    if (result.success) {
+        res.json(result);
+    } else {
+        res.status(500).json({ error: result.error || 'Backup creation failed' });
+    }
+});
+
+// Mods (case-insensitive Mods/mods support + enabled/disabled support)
 app.get('/api/servers/:id/mods', (req, res) => {
     const { id } = req.params;
     const serverPath = path.join(SERVERS_DIR, id);
+
+    let modsDir = path.join(serverPath, 'mods');
+    if (!fs.existsSync(modsDir) && fs.existsSync(path.join(serverPath, 'Mods'))) {
+        modsDir = path.join(serverPath, 'Mods');
+    }
+
+    if (!fs.existsSync(modsDir)) return res.json([]);
+
+    const mods = fs.readdirSync(modsDir)
+        .filter(f => f.endsWith('.jar') || f.endsWith('.jar.disabled'))
+        .map(f => {
+            const stats = fs.statSync(path.join(modsDir, f));
+            const isEnabled = f.endsWith('.jar');
+            const cleanName = f.replace(/\.jar(\.disabled)?$/, '');
+            return {
+                name: cleanName,
+                filename: f,
+                sizeBytes: stats.size,
+                enabled: isEnabled,
+                category: cleanName.toLowerCase().includes('fabric') || cleanName.toLowerCase().includes('neoforge') ? 'Core Mod' : 'Content Addon',
+                version: '1.21.1'
+            };
+        });
+
+    res.json(mods);
+});
+
+// Toggle Mod (Enable/Disable by renaming .jar <-> .jar.disabled)
+app.post('/api/servers/:id/mods/toggle', async (req, res) => {
+    const { id } = req.params;
+    const { filename, enabled } = req.body;
     
+    const serverPath = path.join(SERVERS_DIR, id);
     let modsDir = path.join(serverPath, 'mods');
     if (!fs.existsSync(modsDir) && fs.existsSync(path.join(serverPath, 'Mods'))) {
         modsDir = path.join(serverPath, 'Mods');
     }
     
-    if (!fs.existsSync(modsDir)) return res.json([]);
+    if (!fs.existsSync(modsDir)) return res.status(404).json({ error: 'Mods directory not found' });
     
-    const mods = fs.readdirSync(modsDir)
-        .filter(f => f.endsWith('.jar'))
-        .map(f => {
-            const stats = fs.statSync(path.join(modsDir, f));
-            return {
-                name: f.replace('.jar', ''),
-                filename: f,
-                sizeBytes: stats.size,
-                enabled: true,
-                category: f.toLowerCase().includes('fabric') || f.toLowerCase().includes('neoforge') ? 'Core Mod' : 'Content Addon',
-                version: '1.21.1'
-            };
-        });
-        
-    res.json(mods);
+    const currentPath = path.join(modsDir, filename);
+    if (!fs.existsSync(currentPath)) return res.status(404).json({ error: 'Mod file not found' });
+    
+    // Safety auto-backup before modifying mods!
+    try { await createWorldBackup(id, 'Pre-Mod Toggle Safety Backup'); } catch(e) {}
+    
+    let targetFilename;
+    if (enabled) {
+        targetFilename = filename.replace(/\.disabled$/, '');
+        if (!targetFilename.endsWith('.jar')) targetFilename += '.jar';
+    } else {
+        targetFilename = filename.endsWith('.disabled') ? filename : `${filename}.disabled`;
+    }
+    
+    const targetPath = path.join(modsDir, targetFilename);
+    fs.renameSync(currentPath, targetPath);
+    
+    addLog(id, 'INFO', `Mod status updated: ${filename} -> ${targetFilename} (${enabled ? 'Enabled' : 'Disabled'})`);
+    res.json({ success: true, newFilename: targetFilename, enabled });
+});
+
+// Delete Mod Endpoint
+app.delete('/api/servers/:id/mods/:filename', async (req, res) => {
+    const { id, filename } = req.params;
+    const serverPath = path.join(SERVERS_DIR, id);
+    let modsDir = path.join(serverPath, 'mods');
+    if (!fs.existsSync(modsDir) && fs.existsSync(path.join(serverPath, 'Mods'))) {
+        modsDir = path.join(serverPath, 'Mods');
+    }
+    
+    const filePath = path.join(modsDir, filename);
+    if (fs.existsSync(filePath)) {
+        // Safety backup before deleting mod!
+        try { await createWorldBackup(id, 'Pre-Mod Deletion Safety Backup'); } catch(e) {}
+        fs.unlinkSync(filePath);
+        addLog(id, 'WARN', `Deleted mod file: ${filename}`);
+        return res.json({ success: true });
+    }
+    res.status(404).json({ error: 'Mod file not found' });
 });
 
 // Files
@@ -602,23 +754,23 @@ app.get('/api/servers/:id/files', (req, res) => {
     const relPath = req.query.path || '';
     const serverPath = path.join(SERVERS_DIR, id);
     const targetDir = path.join(serverPath, relPath);
-    
+
     if (!targetDir.startsWith(serverPath)) return res.status(403).json({ error: 'Access denied' });
     if (!fs.existsSync(targetDir)) return res.status(404).json({ error: 'Directory not found' });
-    
+
     const files = fs.readdirSync(targetDir)
         .filter(file => file.toLowerCase() !== 'user_jvm_args.txt')
         .map(file => {
-        const fullPath = path.join(targetDir, file);
-        const stat = fs.statSync(fullPath);
-        return {
-            name: file,
-            isDir: stat.isDirectory(),
-            size: stat.size,
-            path: path.relative(serverPath, fullPath).replace(/\\/g, '/')
-        };
-    });
-    
+            const fullPath = path.join(targetDir, file);
+            const stat = fs.statSync(fullPath);
+            return {
+                name: file,
+                isDir: stat.isDirectory(),
+                size: stat.size,
+                path: path.relative(serverPath, fullPath).replace(/\\/g, '/')
+            };
+        });
+
     res.json(files);
 });
 
@@ -626,13 +778,13 @@ app.get('/api/servers/:id/files/content', (req, res) => {
     const { id } = req.params;
     const relPath = req.query.path;
     if (!relPath) return res.status(400).json({ error: 'Path is required' });
-    
+
     const serverPath = path.join(SERVERS_DIR, id);
     const targetFile = path.join(serverPath, relPath);
-    
+
     if (!targetFile.startsWith(serverPath)) return res.status(403).json({ error: 'Access denied' });
     if (!fs.existsSync(targetFile) || fs.statSync(targetFile).isDirectory()) return res.status(404).json({ error: 'File not found' });
-    
+
     const content = fs.readFileSync(targetFile, 'utf8');
     res.json({ content });
 });
@@ -640,14 +792,14 @@ app.get('/api/servers/:id/files/content', (req, res) => {
 app.post('/api/servers/:id/files/save', (req, res) => {
     const { id } = req.params;
     const { path: relPath, content } = req.body;
-    
+
     if (!relPath) return res.status(400).json({ error: 'Path is required' });
-    
+
     const serverPath = path.join(SERVERS_DIR, id);
     const targetFile = path.join(serverPath, relPath);
-    
+
     if (!targetFile.startsWith(serverPath)) return res.status(403).json({ error: 'Access denied' });
-    
+
     fs.writeFileSync(targetFile, content, 'utf8');
     res.json({ success: true });
 });
@@ -658,7 +810,7 @@ app.get('/api/servers/:id/backups', (req, res) => {
     const serverPath = path.join(SERVERS_DIR, id);
     const backupDir = path.join(serverPath, 'simplebackups');
     if (!fs.existsSync(backupDir)) return res.json([]);
-    
+
     const backups = fs.readdirSync(backupDir)
         .filter(f => f.endsWith('.zip') || f.endsWith('.tar.gz'))
         .map(f => {
@@ -669,7 +821,7 @@ app.get('/api/servers/:id/backups', (req, res) => {
                 createdAt: stats.mtime.toISOString()
             };
         });
-        
+
     res.json(backups);
 });
 
@@ -678,19 +830,19 @@ app.post('/api/servers/:id/backups', (req, res) => {
     const serverPath = path.join(SERVERS_DIR, id);
     const worldDir = path.join(serverPath, 'world');
     const backupDir = path.join(serverPath, 'simplebackups');
-    
+
     if (!fs.existsSync(worldDir)) return res.status(400).json({ error: 'World directory not found to backup' });
     if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
-    
+
     addLog(id, 'INFO', 'Manual world snapshot backup triggered...');
     const zipName = `world-backup-${Date.now()}.zip`;
     const targetZip = path.join(backupDir, zipName);
-    
+
     setTimeout(() => {
         fs.writeFileSync(targetZip, 'Minecraft world snapshot backup content', 'utf8');
         addLog(id, 'INFO', `Backup snapshot ${zipName} generated successfully!`);
     }, 2000);
-    
+
     res.json({ success: true, message: 'Backup background task initiated' });
 });
 
@@ -721,25 +873,25 @@ getFreePort(DEFAULT_PORT, (freePort) => {
         const parsedUrl = new URL(req.url, 'http://localhost');
         const pathParts = parsedUrl.pathname.split('/');
         const serverId = pathParts[pathParts.indexOf('servers') + 1];
-        
+
         if (!serverId || !serverInstances[serverId]) {
             ws.close(1008, 'Server ID not found or active');
             return;
         }
-        
+
         const instance = serverInstances[serverId];
         instance.clients.add(ws);
-        
+
         ws.send(JSON.stringify({
             type: 'init',
             logs: instance.logs,
             status: instance.status
         }));
-        
+
         ws.on('close', () => {
             instance.clients.delete(ws);
         });
-        
+
         ws.on('message', (msg) => {
             try {
                 const data = JSON.parse(msg);
@@ -747,7 +899,7 @@ getFreePort(DEFAULT_PORT, (freePort) => {
                     addLog(serverId, 'INFO', `CONSOLE issued server command: ${data.command}`);
                     instance.process.stdin.write(`${data.command}\n`);
                 }
-            } catch (e) {}
+            } catch (e) { }
         });
     });
 
@@ -759,7 +911,7 @@ getFreePort(DEFAULT_PORT, (freePort) => {
             console.log(`\n=================================================`);
             console.log(`>>> LOCALTUNNEL ACTIVE: ${tunnel.url}`);
             console.log(`=================================================\n`);
-            
+
             tunnel.on('close', () => {
                 setTimeout(() => setupTunnel(targetPort), 5000);
             });
@@ -832,7 +984,7 @@ getFreePort(DEFAULT_PORT, (freePort) => {
                             const cfUrl = match[0];
                             try {
                                 fs.writeFileSync(path.join(__dirname, 'cloudflare_tunnel.txt'), cfUrl, 'utf8');
-                            } catch (e) {}
+                            } catch (e) { }
                             console.log(`\n=================================================`);
                             console.log(`>>> CLOUDFLARE QUICK TUNNEL ACTIVE (GOLD STANDARD): <<<`);
                             console.log(`>>> ${cfUrl}`);
@@ -853,7 +1005,7 @@ getFreePort(DEFAULT_PORT, (freePort) => {
         console.log(`=================================================`);
         console.log(`ObsidianNode Local API Daemon running on port ${freePort}`);
         console.log(`=================================================`);
-        
+
         setupTunnel(freePort);
     });
 });
