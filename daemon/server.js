@@ -78,7 +78,10 @@ function getServersList() {
 
 // Read server.properties helper
 function readServerProperties(serverPath) {
-    const propsPath = path.join(serverPath, 'server.properties');
+    let propsPath = path.join(serverPath, 'server.properties');
+    if (!fs.existsSync(propsPath) && fs.existsSync(path.join(serverPath, 'data', 'server.properties'))) {
+        propsPath = path.join(serverPath, 'data', 'server.properties');
+    }
     const props = {};
     if (fs.existsSync(propsPath)) {
         const content = fs.readFileSync(propsPath, 'utf8');
@@ -248,8 +251,12 @@ setInterval(() => {
                 if (instance.idleSeconds >= 900) {
                     addLog(serverId, 'WARN', '[Auto-Shutdown] Server empty for 15 minutes. Automatically shutting down...');
                     if (instance.process && instance.process.stdin) {
-                        instance.process.stdin.write('stop\n');
+                        try { instance.process.stdin.write('stop\n'); } catch(e) {}
                     }
+                    killProcessOnPort(port, () => {
+                        instance.status = 'offline';
+                        broadcastStatus(serverId, 'offline');
+                    });
                     instance.idleSeconds = 0;
                 }
             } else {
@@ -319,6 +326,14 @@ function killProcessOnPort(port, callback) {
     });
 }
 
+function getServerWorkingDir(serverId) {
+    const rawPath = path.join(SERVERS_DIR, serverId);
+    if (fs.existsSync(path.join(rawPath, 'data', 'server.properties'))) {
+        return path.join(rawPath, 'data');
+    }
+    return rawPath;
+}
+
 // Power actions
 app.post('/api/servers/:id/power', (req, res) => {
     const { id } = req.params;
@@ -326,7 +341,7 @@ app.post('/api/servers/:id/power', (req, res) => {
 
     const instance = serverInstances[id];
     if (!instance) return res.status(404).json({ error: 'Server not found' });
-    const serverPath = path.join(SERVERS_DIR, id);
+    const serverPath = getServerWorkingDir(id);
 
     if (action === 'start') {
         if (instance.status === 'online' || instance.status === 'starting') {
