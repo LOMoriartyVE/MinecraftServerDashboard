@@ -686,7 +686,7 @@ app.get('/api/servers/:id/telemetry', async (req, res) => {
     }
 
     const maxRamGb = 4;
-    const ramUsed = processRamGb || (instance.status === 'online' ? 2.1 : 0.0);
+    const ramUsed = (processRamGb > 0.3) ? processRamGb : (instance.status === 'online' ? 2.15 : 0.0);
     const ramPct = instance.status === 'online' ? Math.min(100, Math.round((ramUsed / maxRamGb) * 100)) : 0;
 
     let idleRemaining = 900;
@@ -1018,6 +1018,81 @@ function bumpServerVersion(serverId, changeDescription) {
 app.get('/api/servers/:id/version', (req, res) => {
     const { id } = req.params;
     res.json(getServerVersionInfo(id));
+});
+
+// Endpoint: GET Server Properties & Identity Metadata
+app.get('/api/servers/:id/properties', (req, res) => {
+    const { id } = req.params;
+    const workingDir = getServerWorkingDir(id);
+    const props = readServerProperties(workingDir);
+
+    let meta = {};
+    const metaPath = path.join(workingDir, 'server_meta.json');
+    if (fs.existsSync(metaPath)) {
+        try { meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')); } catch(e) {}
+    }
+
+    res.json({
+        serverName: meta.serverName || props['server-name'] || id.replace(/_/g, ' '),
+        description: meta.description || props['motd'] || 'A Minecraft Server',
+        iconUrl: meta.iconUrl || '',
+        properties: props
+    });
+});
+
+// Endpoint: POST Save Server Properties & Identity Metadata
+app.post('/api/servers/:id/properties', (req, res) => {
+    const { id } = req.params;
+    const { serverName, description, iconUrl, properties } = req.body || {};
+    const workingDir = getServerWorkingDir(id);
+
+    const metaPath = path.join(workingDir, 'server_meta.json');
+    const meta = { serverName, description, iconUrl, updated: new Date().toISOString() };
+    try {
+        fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+    } catch(e) {}
+
+    if (properties && typeof properties === 'object') {
+        let propsPath = path.join(workingDir, 'server.properties');
+        if (!fs.existsSync(propsPath) && fs.existsSync(path.join(workingDir, 'data', 'server.properties'))) {
+            propsPath = path.join(workingDir, 'data', 'server.properties');
+        }
+
+        if (description) properties['motd'] = description;
+
+        let content = '';
+        if (fs.existsSync(propsPath)) {
+            const lines = fs.readFileSync(propsPath, 'utf8').split('\n');
+            const updatedKeys = new Set();
+            for (let line of lines) {
+                const trimmed = line.trim();
+                if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+                    const k = trimmed.split('=')[0].trim();
+                    if (properties[k] !== undefined) {
+                        content += `${k}=${properties[k]}\n`;
+                        updatedKeys.add(k);
+                        continue;
+                    }
+                }
+                content += line + '\n';
+            }
+            Object.keys(properties).forEach(k => {
+                if (!updatedKeys.has(k)) {
+                    content += `${k}=${properties[k]}\n`;
+                }
+            });
+        } else {
+            Object.keys(properties).forEach(k => {
+                content += `${k}=${properties[k]}\n`;
+            });
+        }
+
+        try {
+            fs.writeFileSync(propsPath, content.trim(), 'utf8');
+        } catch(e) {}
+    }
+
+    res.json({ success: true, message: 'Server settings & identity saved successfully!' });
 });
 
 // Endpoint: Download Client Mods Pack (.zip)

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Sliders, Link, HelpCircle, Save } from 'lucide-react';
+import { Sliders, Link, HelpCircle, Save, Image, Sparkles } from 'lucide-react';
 
 export default function Settings({
   daemonUrl,
@@ -15,31 +15,29 @@ export default function Settings({
 }) {
   const [urlInput, setUrlInput] = useState(daemonUrl);
   const [properties, setProperties] = useState({});
+  const [serverName, setServerName] = useState('');
+  const [description, setDescription] = useState('');
+  const [iconUrl, setIconUrl] = useState('');
   const [isLoadingProps, setIsLoadingProps] = useState(false);
 
   useEffect(() => {
     setUrlInput(daemonUrl);
   }, [daemonUrl]);
 
-  // Load server.properties fields
+  // Load server properties & identity metadata
   const fetchProperties = async () => {
     if (!serverId) return;
     setIsLoadingProps(true);
     try {
-      const data = await apiFetch(`/api/servers/${serverId}/files/content?path=server.properties`);
-      const props = {};
-      data.content.split('\n').forEach(line => {
-        line = line.trim();
-        if (line && !line.startsWith('#') && line.includes('=')) {
-          const parts = line.split('=');
-          const key = parts[0].trim();
-          const value = parts.slice(1).join('=').trim();
-          props[key] = value;
-        }
-      });
-      setProperties(props);
+      const data = await apiFetch(`/api/servers/${serverId}/properties`);
+      if (data) {
+        setServerName(data.serverName || '');
+        setDescription(data.description || '');
+        setIconUrl(data.iconUrl || '');
+        if (data.properties) setProperties(data.properties);
+      }
     } catch (e) {
-      // props read fail
+      // properties fallback read
     } finally {
       setIsLoadingProps(false);
     }
@@ -52,7 +50,6 @@ export default function Settings({
   const handleConnectionSave = (e) => {
     e.preventDefault();
     let cleanedUrl = urlInput.trim();
-    // remove trailing slash
     if (cleanedUrl.endsWith('/')) {
       cleanedUrl = cleanedUrl.slice(0, -1);
     }
@@ -70,22 +67,21 @@ export default function Settings({
   const handleSaveProperties = async () => {
     if (!serverId) return;
     try {
-      let content = '#Minecraft server properties\n';
-      content += `#Updated by ObsidianNode Dashboard: ${new Date().toISOString()}\n`;
-      for (const [key, val] of Object.entries(properties)) {
-        content += `${key}=${val}\n`;
-      }
-      
-      await apiFetch(`/api/servers/${serverId}/files/save`, {
+      await apiFetch(`/api/servers/${serverId}/properties`, {
         method: 'POST',
         body: JSON.stringify({
-          path: 'server.properties',
-          content
+          serverName,
+          description,
+          iconUrl,
+          properties: {
+            ...properties,
+            motd: description
+          }
         })
       });
-      showToast('Successfully updated server properties. Restart to apply.', 'success');
+      showToast('Server Identity, Image & Properties updated successfully! Restart server to apply.', 'success');
     } catch (err) {
-      showToast(`Failed to update properties: ${err.message}`, 'error');
+      showToast(`Failed to save settings: ${err.message}`, 'error');
     }
   };
 
@@ -97,55 +93,47 @@ export default function Settings({
           <Sliders className="w-5 h-5 text-mcgreen-400" /> Settings & Configurations
         </h3>
         <p className="text-xs text-slate-400 mt-1">
-          Link the frontend to your local daemon or manage server configuration properties.
+          Customize server display name, description, server icon image, daemon connection link, and server properties.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Connection Setup */}
-        <div className="glass-panel p-5 rounded-2xl flex flex-col space-y-4 h-fit">
-          <div className="pb-2 border-b border-obsidian-700">
-            <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-              <Link className="w-4 h-4 text-mcgreen-400" /> Daemon Integration Linker
-            </h4>
-          </div>
+      <div className="grid grid-cols-1 gap-6">
 
-          <form onSubmit={handleConnectionSave} className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Daemon Endpoint URL (Direct HTTPS)
-              </label>
-              <input
-                type="text"
-                value={urlInput}
-                onChange={(e) => setUrlInput(e.target.value)}
-                placeholder="e.g. https://xxx.trycloudflare.com"
-                className="w-full bg-obsidian-950 border border-obsidian-700 focus:border-mcgreen-500 rounded-xl px-3 py-2 text-xs font-mono text-white outline-none transition-colors"
-              />
-            </div>
+        {/* Daemon Connection Link Card */}
+        <div className="glass-panel p-6 rounded-2xl border border-obsidian-700 space-y-4">
+          <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+            <Link className="w-4 h-4 text-purple-400" /> Local Daemon API Link
+          </h4>
 
-            <button
-              type="submit"
-              className="w-full bg-mcgreen-500 hover:bg-mcgreen-600 text-obsidian-950 font-bold py-2 rounded-xl text-xs transition-all active:scale-95 shadow-lg shadow-mcgreen-500/20"
+          <form onSubmit={handleConnectionSave} className="flex gap-3">
+            <input 
+              type="text" 
+              value={urlInput} 
+              onChange={(e) => setUrlInput(e.target.value)} 
+              placeholder="e.g. https://...trycloudflare.com or http://localhost:3001"
+              className="flex-1 bg-obsidian-950 border border-obsidian-700 rounded-xl px-4 py-2.5 text-xs text-white outline-none focus:border-purple-500 font-mono"
+            />
+            <button 
+              type="submit" 
+              className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-lg shadow-purple-600/20"
             >
-              Update Daemon Link
+              Save Link
             </button>
           </form>
         </div>
 
-        {/* Server Config GUI Form */}
-        <div className="lg:col-span-2 glass-panel p-5 rounded-2xl flex flex-col space-y-4">
-          <div className="pb-2 border-b border-obsidian-700 flex justify-between items-center">
-            <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-              Server Properties Manager
+        {/* Server Properties & Identity Manager */}
+        <div className="glass-panel p-6 rounded-2xl border border-obsidian-700 space-y-6">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <Sliders className="w-4 h-4 text-mcgreen-400" /> Server Identity & Properties
             </h4>
             {serverId && (
               <button 
                 onClick={handleSaveProperties}
-                className="px-3 py-1.5 bg-mcgreen-500 hover:bg-mcgreen-600 text-obsidian-950 rounded-lg text-xs font-semibold flex items-center gap-1.5 active:scale-95 shadow-md shadow-mcgreen-500/20 transition-all"
+                className="px-4 py-2 bg-mcgreen-500 hover:bg-mcgreen-600 text-obsidian-950 rounded-xl text-xs font-bold flex items-center gap-1.5 active:scale-95 shadow-lg shadow-mcgreen-500/20 transition-all"
               >
-                <Save className="w-3.5 h-3.5" /> Save Configuration
+                <Save className="w-4 h-4" /> Save All Changes
               </button>
             )}
           </div>
@@ -155,6 +143,56 @@ export default function Settings({
           ) : serverId ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-sans">
               
+              {/* Server Name, Description & Image Customizer */}
+              <div className="md:col-span-2 p-4 bg-obsidian-950/80 rounded-2xl border border-obsidian-750 space-y-4 mb-2">
+                <h5 className="text-xs font-bold text-mcgreen-400 uppercase tracking-wider flex items-center gap-2">
+                  <Image className="w-4 h-4" /> Server Display Name, Description & Image Icon
+                </h5>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Server Display Name</label>
+                    <input 
+                      type="text" 
+                      value={serverName} 
+                      onChange={(e) => setServerName(e.target.value)}
+                      placeholder="e.g. The Eastern Server"
+                      className="w-full bg-obsidian-900 border border-obsidian-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-mcgreen-500 font-sans"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Server Image / Icon URL</label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        value={iconUrl} 
+                        onChange={(e) => setIconUrl(e.target.value)}
+                        placeholder="https://... or data:image/png;base64,..."
+                        className="w-full bg-obsidian-900 border border-obsidian-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-mcgreen-500 font-mono"
+                      />
+                      {iconUrl && (
+                        <img src={iconUrl} alt="Server Icon Preview" className="w-9 h-9 rounded-lg border border-obsidian-700 object-cover shrink-0" />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="md:col-span-2 space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Server Description (MOTD)</label>
+                    <input 
+                      type="text" 
+                      value={description} 
+                      onChange={(e) => {
+                        setDescription(e.target.value);
+                        handlePropertyChange('motd', e.target.value);
+                      }}
+                      placeholder="Welcome to our NeoForge Survival Server!"
+                      className="w-full bg-obsidian-900 border border-obsidian-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-mcgreen-500 font-sans"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="space-y-1">
                 <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Difficulty</label>
                 <select 
@@ -227,17 +265,7 @@ export default function Settings({
                 </select>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">MOTD (Server Description)</label>
-                <input 
-                  type="text" 
-                  value={properties['motd'] || 'A Minecraft Server'} 
-                  onChange={(e) => handlePropertyChange('motd', e.target.value)}
-                  className="w-full bg-obsidian-950 border border-obsidian-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-mcgreen-500 font-sans"
-                />
-              </div>
-
-              <div className="space-y-1">
+              <div className="space-y-1 md:col-span-2">
                 <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">View Distance</label>
                 <input 
                   type="number" 
