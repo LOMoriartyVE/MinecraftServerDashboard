@@ -395,7 +395,9 @@ export default function Dashboard() {
           <Plugins 
             apiFetch={apiFetch} 
             serverId={selectedServerId} 
+            activeServer={activeServerInfo}
             showToast={showToast}
+            daemonUrl={daemonUrl}
           />
         );
       case 'files':
@@ -412,6 +414,7 @@ export default function Dashboard() {
             apiFetch={apiFetch} 
             serverId={selectedServerId} 
             showToast={showToast}
+            daemonUrl={daemonUrl}
           />
         );
       case 'settings':

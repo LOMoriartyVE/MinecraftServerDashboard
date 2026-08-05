@@ -7,7 +7,7 @@ import {
   Layers, Monitor, Server as ServerIcon, ShieldCheck, ChevronRight, History
 } from 'lucide-react';
 
-export default function Plugins({ apiFetch, serverId, activeServer, showToast }) {
+export default function Plugins({ apiFetch, serverId, activeServer, showToast, daemonUrl }) {
   const [activeTab, setActiveTab] = useState('installed'); // 'installed' | 'explore'
   
   // Installed Mods State
@@ -20,9 +20,9 @@ export default function Plugins({ apiFetch, serverId, activeServer, showToast })
 
   // Explore Modrinth Search State
   const [searchQuery, setSearchQuery] = useState('waystones');
-  const [platformFilter, setPlatformFilter] = useState('neoforge'); // 'all' | 'neoforge' | 'forge' | 'fabric'
+  const [platformFilter, setPlatformFilter] = useState('neoforge');
   const [gameVersionFilter, setGameVersionFilter] = useState('1.21.1');
-  const [envFilter, setEnvFilter] = useState('all'); // 'all' | 'client' | 'server' | 'both'
+  const [envFilter, setEnvFilter] = useState('all');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   
@@ -122,22 +122,36 @@ export default function Plugins({ apiFetch, serverId, activeServer, showToast })
   };
 
   // Download Client Mods Pack (.zip)
-  const handleDownloadClientPack = () => {
+  const handleDownloadClientPack = async () => {
     setIsDownloadingPack(true);
     showToast('Generating Client Mods Pack (.zip)...', 'info');
-    const zipUrl = `${apiFetch.daemonUrl || ''}/api/servers/${serverId}/mods/download-client-pack`;
     
-    const a = document.createElement('a');
-    a.href = zipUrl;
-    a.download = `Client_Mods_${serverId}_v${serverVersion.version}.zip`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    
-    setTimeout(() => {
+    try {
+      const cleanUrl = daemonUrl ? daemonUrl.replace(/\/$/, '') : '';
+      const endpoint = `${cleanUrl}/api/servers/${serverId}/mods/download-client-pack`;
+      
+      const res = await fetch(endpoint, {
+        headers: { 'bypass-tunnel-reminder': 'true' }
+      });
+      
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `Client_Mods_${serverId}_v${serverVersion.version || '1.0.0'}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(blobUrl);
+      
+      showToast('Client Mods Pack downloaded successfully!', 'success');
+    } catch (err) {
+      showToast(`Failed to download client mods pack: ${err.message}`, 'error');
+    } finally {
       setIsDownloadingPack(false);
-      showToast('Client Mods Pack download started!', 'success');
-    }, 1500);
+    }
   };
 
   // Local Toggle & Pending state

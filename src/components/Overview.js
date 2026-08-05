@@ -153,9 +153,62 @@ export default function Overview({
   const showRamPercent = activeServer?.status === 'online' ? (telemetry?.ramPercent || 0) : 0;
   const showPlayers = activeServer?.status === 'online' ? (activeServer?.onlinePlayers || 0) : 0;
 
+  const formatIdleTime = (sec) => {
+    if (!sec || sec <= 0) return '00m 00s';
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}m ${s < 10 ? '0' : ''}${s}s`;
+  };
+
   return (
     <div className="space-y-6 font-sans">
       
+      {/* 15-Minute Empty Server Auto-Shutdown Countdown Banner */}
+      {activeServer?.status === 'online' && (
+        <div className="glass-panel p-4 rounded-2xl border border-obsidian-700 bg-obsidian-900/80 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
+              (telemetry?.playersCount || 0) === 0 
+                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' 
+                : 'bg-mcgreen-500/15 text-mcgreen-400 border border-mcgreen-500/30'
+            }`}>
+              <Clock className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                {(telemetry?.playersCount || 0) === 0 ? 'Empty Server Auto-Shutdown Countdown' : 'Server Player Activity'}
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-obsidian-850 text-slate-300 border border-obsidian-750">
+                  15m Idle Limit
+                </span>
+              </h4>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {(telemetry?.playersCount || 0) === 0 
+                  ? 'Automatically turns off server process when 0 players remain to save PC RAM/CPU.' 
+                  : 'Auto-shutdown countdown is paused while players are online.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="text-right shrink-0">
+            {(telemetry?.playersCount || 0) === 0 ? (
+              <div>
+                <div className="text-base font-extrabold text-amber-400 font-mono animate-pulse">
+                  {formatIdleTime(telemetry?.idleSecondsRemaining)}
+                </div>
+                <div className="text-[9px] text-slate-500 uppercase font-mono tracking-wider">Time Until Auto-Close</div>
+              </div>
+            ) : (
+              <div>
+                <div className="text-xs font-bold text-mcgreen-400 font-mono flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-mcgreen-400 animate-pulse" /> Active
+                </div>
+                <div className="text-[9px] text-slate-500 uppercase font-mono tracking-wider">Timer Paused</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Exaroton-Style Server Credit Usage Tracker */}
       <div className="glass-panel p-4 sm:p-5 rounded-2xl border border-mcgreen-500/30 bg-gradient-to-r from-obsidian-900 via-obsidian-850 to-obsidian-900 relative overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

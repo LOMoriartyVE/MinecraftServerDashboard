@@ -547,9 +547,9 @@ app.get('/api/servers/:id/telemetry', async (req, res) => {
         } catch (e) { }
     }
 
-    const maxRamGb = 4;
-    const ramUsed = processRamGb || (instance.status === 'online' ? 2.1 : 0.0);
-    const ramPct = instance.status === 'online' ? Math.min(100, Math.round((ramUsed / maxRamGb) * 100)) : 0;
+    const idleSecondsRemaining = (instance.status === 'online' && (instance.onlinePlayers || 0) === 0)
+        ? Math.max(0, 900 - (instance.idleSeconds || 0))
+        : 900;
 
     res.json({
         tps: instance.status === 'online' ? 20.0 : 0.0,
@@ -562,7 +562,8 @@ app.get('/api/servers/:id/telemetry', async (req, res) => {
         hostCpuPercent: Math.round(os.loadavg()[0] * 10) || 12,
         hostUsedRamGb: parseFloat((hostUsedMem / (1024 * 1024 * 1024)).toFixed(1)),
         hostTotalRamGb: Math.round(hostTotalMem / (1024 * 1024 * 1024)),
-        uptimeSeconds: instance.uptimeSeconds
+        uptimeSeconds: instance.uptimeSeconds,
+        idleSecondsRemaining: idleSecondsRemaining
     });
 });
 
@@ -724,24 +725,16 @@ app.get('/api/servers/:id/backups', (req, res) => {
 });
 
 // Trigger Backup API Endpoints
-app.post('/api/servers/:id/backups', async (req, res) => {
+app.post('/api/servers/:id/backups', (req, res) => {
     const { id } = req.params;
-    const result = await createWorldBackup(id, 'Manual Dashboard Action');
-    if (result.success) {
-        res.json({ success: true, message: `Backup created! World: ${result.oldSizeMb} MB -> Zip: ${result.newSizeMb} MB`, ...result });
-    } else {
-        res.status(500).json({ error: result.error || 'Backup creation failed' });
-    }
+    res.json({ success: true, message: 'World backup snapshot started in background...' });
+    createWorldBackup(id, 'Manual Dashboard Action');
 });
 
-app.post('/api/servers/:id/backups/create', async (req, res) => {
+app.post('/api/servers/:id/backups/create', (req, res) => {
     const { id } = req.params;
-    const result = await createWorldBackup(id, 'Manual Dashboard Action');
-    if (result.success) {
-        res.json({ success: true, message: `Backup created! World: ${result.oldSizeMb} MB -> Zip: ${result.newSizeMb} MB`, ...result });
-    } else {
-        res.status(500).json({ error: result.error || 'Backup creation failed' });
-    }
+    res.json({ success: true, message: 'World backup snapshot started in background...' });
+    createWorldBackup(id, 'Manual Dashboard Action');
 });
 
 // Delete Backup API Endpoint
