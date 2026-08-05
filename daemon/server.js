@@ -868,10 +868,10 @@ app.get('/api/servers/:id/version', (req, res) => {
 // Endpoint: Download Client Mods Pack (.zip)
 app.get('/api/servers/:id/mods/download-client-pack', async (req, res) => {
     const { id } = req.params;
-    const serverPath = getServerWorkingDir(id);
-    let modsDir = path.join(serverPath, 'mods');
-    if (!fs.existsSync(modsDir) && fs.existsSync(path.join(serverPath, 'Mods'))) {
-        modsDir = path.join(serverPath, 'Mods');
+    const workingDir = getServerWorkingDir(id);
+    let modsDir = path.join(workingDir, 'mods');
+    if (!fs.existsSync(modsDir) && fs.existsSync(path.join(workingDir, 'Mods'))) {
+        modsDir = path.join(workingDir, 'Mods');
     }
     
     if (!fs.existsSync(modsDir)) {
@@ -879,19 +879,35 @@ app.get('/api/servers/:id/mods/download-client-pack', async (req, res) => {
     }
 
     const versionInfo = getServerVersionInfo(id);
-    const tempZipName = `Client_Mods_${id}_v${versionInfo.version}.zip`;
+    const tempZipName = `Client_Mods_${id}_v${versionInfo.version || '1.0.0'}.zip`;
+    const tempPackDir = path.join(os.tmpdir(), `pack_${id}_${Date.now()}`);
     const tempZipPath = path.join(os.tmpdir(), tempZipName);
     
-    const psCmd = `powershell -Command "Compress-Archive -Path '${modsDir}\\*.jar' -DestinationPath '${tempZipPath}' -Force"`;
-    exec(psCmd, (err) => {
-        if (err || !fs.existsSync(tempZipPath)) {
-            return res.status(500).json({ error: 'Failed to generate client mods zip package' });
-        }
+    try {
+        if (!fs.existsSync(tempPackDir)) fs.mkdirSync(tempPackDir, { recursive: true });
         
-        res.download(tempZipPath, tempZipName, (err) => {
-            try { fs.unlinkSync(tempZipPath); } catch(e) {}
+        const files = fs.readdirSync(modsDir).filter(f => f.endsWith('.jar'));
+        for (const f of files) {
+            fs.copyFileSync(path.join(modsDir, f), path.join(tempPackDir, f));
+        }
+
+        const psCmd = `powershell -Command "Add-Type -Assembly 'System.IO.Compression.FileSystem'; [System.IO.Compression.ZipFile]::CreateFromDirectory('${tempPackDir}', '${tempZipPath}')"`;
+        exec(psCmd, (err) => {
+            try { fs.rmSync(tempPackDir, { recursive: true, force: true }); } catch(e) {}
+
+            if (err || !fs.existsSync(tempZipPath)) {
+                return res.status(500).json({ error: 'Failed to generate client mods zip package' });
+            }
+            
+            res.setHeader('Content-Type', 'application/zip');
+            res.setHeader('Content-Disposition', `attachment; filename="${tempZipName}"`);
+            res.download(tempZipPath, tempZipName, () => {
+                try { fs.unlinkSync(tempZipPath); } catch(e) {}
+            });
         });
-    });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 // Search Modrinth API for Minecraft Mods with Enriched Facets
