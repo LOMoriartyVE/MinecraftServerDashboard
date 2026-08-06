@@ -151,7 +151,12 @@ function ensureLogTailer(serverId) {
     const instance = serverInstances[serverId];
     if (!instance || instance.logWatcher) return;
 
-    const logFilePath = path.join(SERVERS_DIR, serverId, 'logs', 'latest.log');
+    const logsDir = path.join(SERVERS_DIR, serverId, 'logs');
+    if (!fs.existsSync(logsDir)) {
+        try { fs.mkdirSync(logsDir, { recursive: true }); } catch (e) { }
+    }
+
+    const logFilePath = path.join(logsDir, 'latest.log');
     if (!fs.existsSync(logFilePath)) return;
 
     let lastSize = 0;
@@ -163,6 +168,7 @@ function ensureLogTailer(serverId) {
         const watcher = fs.watch(logFilePath, (eventType) => {
             if (eventType === 'change') {
                 try {
+                    if (!fs.existsSync(logFilePath)) return;
                     const stats = fs.statSync(logFilePath);
                     if (stats.size > lastSize) {
                         const stream = fs.createReadStream(logFilePath, {
@@ -173,6 +179,7 @@ function ensureLogTailer(serverId) {
                         lastSize = stats.size;
 
                         let buffer = '';
+                        stream.on('error', () => { });
                         stream.on('data', chunk => { buffer += chunk; });
                         stream.on('end', () => {
                             buffer.split('\n').forEach(line => {
@@ -1013,6 +1020,25 @@ function bumpServerVersion(serverId, changeDescription) {
     
     return info;
 }
+
+// Endpoint: Map Info & Seed
+app.get('/api/servers/:id/map-info', (req, res) => {
+    const { id } = req.params;
+    const workingDir = getServerWorkingDir(id);
+    const props = readServerProperties(workingDir);
+    let levelSeed = props['level-seed'] || props['seed'] || '';
+
+    res.json({
+        seed: levelSeed,
+        levelName: props['level-name'] || 'world',
+        gameMode: props['gamemode'] || 'survival',
+        difficulty: props['difficulty'] || 'easy',
+        mcVersion: '1.21.1',
+        chunkbaseUrl: levelSeed 
+            ? `https://www.chunkbase.com/apps/seed-map#seed=${encodeURIComponent(levelSeed)}&platform=java_1_21_1`
+            : `https://www.chunkbase.com/apps/seed-map#platform=java_1_21_1`
+    });
+});
 
 // Endpoint: Server Version & Changelog
 app.get('/api/servers/:id/version', (req, res) => {

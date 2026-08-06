@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Box, Terminal, Users, Puzzle, FolderTree, HardDriveDownload, 
   Sliders, ChevronDown, PlusCircle, Cpu, LogOut, CheckCircle, 
-  AlertTriangle, AlertOctagon, Info, Bell, Power, Menu, X, RefreshCw, Clock
+  AlertTriangle, AlertOctagon, Info, Bell, Power, Menu, X, RefreshCw, Clock, Compass, MapPin
 } from 'lucide-react';
 
 import Overview from './Overview';
@@ -14,6 +14,7 @@ import Plugins from './Plugins';
 import Files from './Files';
 import Backups from './Backups';
 import Settings from './Settings';
+import WorldMap from './WorldMap';
 
 export default function Dashboard() {
   // Navigation & Settings State
@@ -438,6 +439,14 @@ export default function Dashboard() {
             showToast={showToast}
           />
         );
+      case 'map':
+        return (
+          <WorldMap 
+            serverId={selectedServerId}
+            apiFetch={apiFetch}
+            showToast={showToast}
+          />
+        );
       default:
         return <div className="text-center text-xs text-slate-400 p-12">Page not found</div>;
     }
@@ -556,6 +565,7 @@ export default function Dashboard() {
             { id: 'players', label: 'Players Manager', icon: Users, badge: activeServerInfo?.onlinePlayers },
             { id: 'plugins', label: 'Plugins & Mods', icon: Puzzle },
             { id: 'files', label: 'File Explorer', icon: FolderTree },
+            { id: 'map', label: 'World Map & Seed', icon: Compass },
             { id: 'backups', label: 'Backups & Vault', icon: HardDriveDownload },
             { id: 'settings', label: 'Server Settings', icon: Sliders }
           ].map(nav => {
@@ -770,6 +780,7 @@ export default function Dashboard() {
             { id: 'players', label: 'Players', icon: Users },
             { id: 'plugins', label: 'Mods', icon: Puzzle },
             { id: 'files', label: 'Files', icon: FolderTree },
+            { id: 'map', label: 'Map', icon: Compass },
             { id: 'settings', label: 'Settings', icon: Sliders }
           ].map(item => {
             const Icon = item.icon;
