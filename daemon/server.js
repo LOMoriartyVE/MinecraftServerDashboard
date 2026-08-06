@@ -72,10 +72,15 @@ function getServersList() {
                 };
             }
 
+            const defaultIp = folderName.toLowerCase().includes('2') ? 'mutant-shaving.tun.ply.gg' : 'wills-nederland.tun.ply.gg';
+            const serverIp = props['public-ip'] || props['playit-ip'] || props['server-domain'] || defaultIp;
+
             return {
                 id: folderName,
                 name: folderName.replace(/_/g, ' '),
                 port: serverPort,
+                ip: serverIp,
+                serverIp: serverIp,
                 version: props['generator-settings'] ? 'Modded' : '1.21.1',
                 status: serverInstances[folderName].status,
                 onlinePlayers: serverInstances[folderName].status === 'online' ? (serverInstances[folderName].playersCount || 0) : 0,
@@ -416,6 +421,44 @@ function getServerWorkingDir(serverId) {
     return rawPath;
 }
 
+function stopServerInstance(id, action = 'stop') {
+    const instance = serverInstances[id];
+    if (!instance || instance.status === 'offline' || instance.status === 'stopping') {
+        return false;
+    }
+
+    const serverPath = getServerWorkingDir(id);
+    instance.status = 'stopping';
+    broadcastStatus(id, 'stopping');
+    addLog(id, 'WARN', action === 'kill' ? 'Force killing server process...' : 'Stopping server via console command...');
+
+    if (instance.process && instance.process.stdin) {
+        try { instance.process.stdin.write('stop\n'); } catch (e) { }
+    }
+
+    const props = readServerProperties(serverPath);
+    const index = Object.keys(serverInstances).indexOf(id);
+    const serverPort = props['server-port'] || (25565 + (index >= 0 ? index : 0)).toString();
+
+    const killTimeout = action === 'kill' ? 300 : 5000;
+    setTimeout(() => {
+        killProcessOnPort(serverPort, () => {
+            instance.status = 'offline';
+            instance.lastPlayerExitTime = null;
+            instance.isAutoStopping = false;
+            broadcastStatus(id, 'offline');
+            addLog(id, 'INFO', 'Server process stopped completely.');
+            if (instance.uptimeInterval) {
+                clearInterval(instance.uptimeInterval);
+                instance.uptimeInterval = null;
+            }
+            instance.process = null;
+        });
+    }, killTimeout);
+
+    return true;
+}
+
 // Power actions
 app.post('/api/servers/:id/power', (req, res) => {
     const { id } = req.params;
@@ -470,6 +513,8 @@ app.post('/api/servers/:id/power', (req, res) => {
                         const name = match[1];
                         const ip = match[2];
                         instance.playersCount = (instance.playersCount || 0) + 1;
+                        instance.lastPlayerExitTime = null;
+                        instance.isAutoStopping = false;
                         if (!instance.playersRoster) instance.playersRoster = [];
                         instance.playersRoster.push({
                             name,
@@ -489,6 +534,9 @@ app.post('/api/servers/:id/power', (req, res) => {
                         if (instance.playersRoster) {
                             instance.playersRoster = instance.playersRoster.filter(p => p.name !== name);
                         }
+                        if (instance.playersCount === 0) {
+                            instance.lastPlayerExitTime = Date.now();
+                        }
                         addLog(id, 'INFO', `Player ${name} left the game.`);
                     }
                 }
@@ -496,6 +544,9 @@ app.post('/api/servers/:id/power', (req, res) => {
                 if (cleanLine.includes('Done (') || cleanLine.includes('For help, type "help"')) {
                     if (instance.status !== 'online') {
                         instance.status = 'online';
+                        if ((instance.playersCount || 0) === 0 && !instance.lastPlayerExitTime) {
+                            instance.lastPlayerExitTime = Date.now();
+                        }
                         broadcastStatus(id, 'online');
                     }
                 }
@@ -515,6 +566,8 @@ app.post('/api/servers/:id/power', (req, res) => {
         instance.process.on('close', (code) => {
             addLog(id, 'INFO', `Server process stopped with exit code ${code}`);
             broadcastStatus(id, 'offline');
+            instance.lastPlayerExitTime = null;
+            instance.isAutoStopping = false;
             if (instance.uptimeInterval) {
                 clearInterval(instance.uptimeInterval);
                 instance.uptimeInterval = null;
@@ -524,6 +577,25 @@ app.post('/api/servers/:id/power', (req, res) => {
 
         instance.uptimeInterval = setInterval(() => {
             instance.uptimeSeconds++;
+
+            // Auto-shutdown check when online and 0 players
+            if (instance.status === 'online') {
+                const activePlayers = instance.playersCount || 0;
+                if (activePlayers === 0) {
+                    if (!instance.lastPlayerExitTime) {
+                        instance.lastPlayerExitTime = Date.now();
+                    }
+                    const elapsedSec = Math.floor((Date.now() - instance.lastPlayerExitTime) / 1000);
+                    if (elapsedSec >= 900 && !instance.isAutoStopping) {
+                        instance.isAutoStopping = true;
+                        addLog(id, 'WARN', 'Auto-shutdown triggered: Server has been empty for 15 minutes. Shutting down server...');
+                        stopServerInstance(id, 'stop');
+                    }
+                } else {
+                    instance.lastPlayerExitTime = null;
+                    instance.isAutoStopping = false;
+                }
+            }
         }, 1000);
 
         res.json({ success: true, message: 'Server is starting...' });
@@ -533,32 +605,7 @@ app.post('/api/servers/:id/power', (req, res) => {
             return res.json({ success: true, message: 'Server is already offline' });
         }
 
-        instance.status = 'stopping';
-        broadcastStatus(id, 'stopping');
-        addLog(id, 'WARN', action === 'kill' ? 'Force killing server process...' : 'Stopping server via console command...');
-
-        if (instance.process && instance.process.stdin) {
-            try { instance.process.stdin.write('stop\n'); } catch (e) { }
-        }
-
-        const props = readServerProperties(serverPath);
-        const index = Object.keys(serverInstances).indexOf(id);
-        const serverPort = props['server-port'] || (25565 + (index >= 0 ? index : 0)).toString();
-
-        const killTimeout = action === 'kill' ? 300 : 5000;
-        setTimeout(() => {
-            killProcessOnPort(serverPort, () => {
-                instance.status = 'offline';
-                broadcastStatus(id, 'offline');
-                addLog(id, 'INFO', 'Server process stopped completely.');
-                if (instance.uptimeInterval) {
-                    clearInterval(instance.uptimeInterval);
-                    instance.uptimeInterval = null;
-                }
-                instance.process = null;
-            });
-        }, killTimeout);
-
+        stopServerInstance(id, action);
         res.json({ success: true, message: 'Server shutdown initiated...' });
     } else if (action === 'restart') {
         if (instance.process && instance.process.stdin) {
@@ -1024,13 +1071,12 @@ function bumpServerVersion(serverId, changeDescription) {
 // Minecraft 1.21.1 Structure & Slime Chunk Generator Engine
 function isSlimeChunk(seedStr, chunkX, chunkZ) {
     try {
-        let seed = BigInt(seedStr || '0');
-        let cx = BigInt(chunkX);
-        let cz = BigInt(chunkZ);
-        let s = (seed + (cx * cx * 0x4c1906n) + (cx * 0x5ac0dbn) + (cz * cz * 0x4307a7n) + (cz * 0x5f24fn) ^ 0x3ad8025fn) & 0xFFFFFFFFFFFFn;
-        let nextSeed = (s * 0x5DEECE66DL + 0xBL) & 0xFFFFFFFFFFFFn;
-        let val = Number(nextSeed >> 17n) % 10;
-        return val === 0;
+        const seed = BigInt(seedStr || '0');
+        const cx = BigInt(chunkX);
+        const cz = BigInt(chunkZ);
+        const s = (seed + (cx * cx * BigInt(0x4c1906)) + (cx * BigInt(0x5ac0db)) + (cz * cz * BigInt(0x4307a7)) + (cz * BigInt(0x5f24f)) ^ BigInt(0x3ad8025f)) & BigInt('0xFFFFFFFFFFFF');
+        const nextSeed = (s * BigInt('0x5DEECE66D') + BigInt(11)) & BigInt('0xFFFFFFFFFFFF');
+        return Number(nextSeed >> BigInt(17)) % 10 === 0;
     } catch(e) {
         return false;
     }
@@ -1157,6 +1203,13 @@ app.get('/api/servers/:id/slime-chunks', (req, res) => {
             }
         }
     }
+
+    res.json({
+        seed,
+        count: slimeChunks.length,
+        slimeChunks
+    });
+});
 
 // Endpoint: Cubiomes Engine API
 app.get('/api/servers/:id/cubiomes', (req, res) => {

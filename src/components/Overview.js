@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Activity, Users, Cpu, Zap, LineChart, Megaphone, Sun, Clock, Save, 
-  ArrowRight, UserCheck
+  ArrowRight, UserCheck, Copy, Check, Globe
 } from 'lucide-react';
 import { Line } from 'react-chartjs-2';
 import {
@@ -34,10 +34,12 @@ export default function Overview({
   sendConsoleCommand, 
   setActiveTab,
   apiFetch,
-  serverId
+  serverId,
+  showToast
 }) {
   const [history, setHistory] = useState({ cpu: [], ram: [], tps: [], labels: [] });
   const [players, setPlayers] = useState([]);
+  const [copiedIp, setCopiedIp] = useState(false);
 
   // Fetch players on load
   useEffect(() => {
@@ -160,8 +162,45 @@ export default function Overview({
     return `${m}m ${s < 10 ? '0' : ''}${s}s`;
   };
 
+  const currentServerIp = activeServer?.ip || activeServer?.serverIp || (serverId === 'Server2' ? 'mutant-shaving.tun.ply.gg' : 'wills-nederland.tun.ply.gg');
+
   return (
     <div className="space-y-6 font-sans">
+
+      {/* Server IP & Public Connection Domain Card */}
+      <div className="glass-panel p-4 sm:p-5 rounded-2xl border border-obsidian-700 bg-gradient-to-r from-obsidian-900 via-obsidian-850 to-obsidian-900 relative overflow-hidden">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center justify-center shrink-0 shadow-inner">
+              <Globe className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Server Connection Address</span>
+                <span className="text-[10px] bg-blue-500/15 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded-full font-mono font-semibold">
+                  Direct Playit.gg Tunnel IP
+                </span>
+              </div>
+              <p className="text-base sm:text-lg font-black text-white font-mono mt-0.5 tracking-wide select-all">
+                {currentServerIp}
+              </p>
+            </div>
+          </div>
+
+          <button 
+            onClick={() => {
+              navigator.clipboard.writeText(currentServerIp);
+              if (showToast) showToast(`Copied ${currentServerIp} to clipboard!`, 'success');
+              setCopiedIp(true);
+              setTimeout(() => setCopiedIp(false), 2000);
+            }}
+            className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-all shadow-lg shadow-blue-600/20 shrink-0 cursor-pointer"
+          >
+            {copiedIp ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
+            <span>{copiedIp ? 'Copied to Clipboard!' : 'Copy Server IP'}</span>
+          </button>
+        </div>
+      </div>
 
       {/* Exaroton-Style Server Credit Usage Tracker */}
       <div className="glass-panel p-4 sm:p-5 rounded-2xl border border-mcgreen-500/30 bg-gradient-to-r from-obsidian-900 via-obsidian-850 to-obsidian-900 relative overflow-hidden">

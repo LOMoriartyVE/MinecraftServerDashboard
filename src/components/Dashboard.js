@@ -4,7 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Box, Terminal, Users, Puzzle, FolderTree, HardDriveDownload, 
   Sliders, ChevronDown, PlusCircle, Cpu, LogOut, CheckCircle, 
-  AlertTriangle, AlertOctagon, Info, Bell, Power, Menu, X, RefreshCw, Clock, Compass, MapPin
+  AlertTriangle, AlertOctagon, Info, Bell, Power, Menu, X, RefreshCw, Clock, Compass, MapPin,
+  Copy, Check, Globe
 } from 'lucide-react';
 
 import Overview from './Overview';
@@ -689,6 +690,23 @@ export default function Dashboard() {
                     }`} />
                     {activeServerInfo.status.toUpperCase()}
                   </span>
+                )}
+
+                {/* Quick Server IP Copy Pill */}
+                {activeServerInfo && (
+                  <button
+                    onClick={() => {
+                      const serverIp = activeServerInfo.ip || activeServerInfo.serverIp || (activeServerInfo.id === 'Server2' ? 'mutant-shaving.tun.ply.gg' : 'wills-nederland.tun.ply.gg');
+                      navigator.clipboard.writeText(serverIp);
+                      showToast(`Copied ${serverIp} to clipboard!`, 'success');
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 border border-blue-500/30 transition-all cursor-pointer shrink-0"
+                    title="Click to copy Server IP"
+                  >
+                    <Globe className="w-3 h-3 text-blue-400" />
+                    <span>{activeServerInfo.ip || activeServerInfo.serverIp || (activeServerInfo.id === 'Server2' ? 'mutant-shaving.tun.ply.gg' : 'wills-nederland.tun.ply.gg')}</span>
+                    <Copy className="w-2.5 h-2.5 text-blue-400 opacity-80" />
+                  </button>
                 )}
 
                 {/* Small Auto-Shutdown Timer Badge with Hover Tooltip */}
