@@ -1021,6 +1021,73 @@ function bumpServerVersion(serverId, changeDescription) {
     return info;
 }
 
+// Minecraft 1.21.1 Structure & Slime Chunk Generator Engine
+function isSlimeChunk(seedStr, chunkX, chunkZ) {
+    try {
+        let seed = BigInt(seedStr || '0');
+        let cx = BigInt(chunkX);
+        let cz = BigInt(chunkZ);
+        let s = (seed + (cx * cx * 0x4c1906n) + (cx * 0x5ac0dbn) + (cz * cz * 0x4307a7n) + (cz * 0x5f24fn) ^ 0x3ad8025fn) & 0xFFFFFFFFFFFFn;
+        let nextSeed = (s * 0x5DEECE66DL + 0xBL) & 0xFFFFFFFFFFFFn;
+        let val = Number(nextSeed >> 17n) % 10;
+        return val === 0;
+    } catch(e) {
+        return false;
+    }
+}
+
+function getStructureLocations(seedStr, structureType, originX = 0, originZ = 0, rangeBlocks = 3000) {
+    const results = [];
+    const seed = BigInt(seedStr || '12345');
+
+    const configs = {
+        village: { spacing: 34, separation: 8, salt: 10387312, name: 'Village', icon: '🏰', dimension: 'overworld' },
+        trial_chamber: { spacing: 34, separation: 12, salt: 94251327, name: 'Trial Chamber', icon: '⚔️', dimension: 'overworld' },
+        ancient_city: { spacing: 24, separation: 8, salt: 20083232, name: 'Ancient City', icon: '🏛️', dimension: 'overworld' },
+        stronghold: { spacing: 32, separation: 10, salt: 1537234, name: 'Stronghold', icon: '👁️', dimension: 'overworld' },
+        nether_fortress: { spacing: 27, separation: 4, salt: 30084232, name: 'Nether Fortress', icon: '🗡️', dimension: 'nether' },
+        bastion: { spacing: 27, separation: 4, salt: 30084233, name: 'Bastion Remnant', icon: '🐷', dimension: 'nether' },
+        monument: { spacing: 32, separation: 5, salt: 10387313, name: 'Ocean Monument', icon: '🌊', dimension: 'overworld' },
+        mansion: { spacing: 80, separation: 20, salt: 10387319, name: 'Woodland Mansion', icon: '🪵', dimension: 'overworld' }
+    };
+
+    const cfg = configs[structureType] || configs.village;
+    const minChunkX = Math.floor((originX - rangeBlocks) / 16);
+    const maxChunkX = Math.ceil((originX + rangeBlocks) / 16);
+    const minChunkZ = Math.floor((originZ - rangeBlocks) / 16);
+    const maxChunkZ = Math.ceil((originZ + rangeBlocks) / 16);
+
+    const step = cfg.spacing;
+    for (let cx = Math.floor(minChunkX / step) * step; cx <= maxChunkX; cx += step) {
+        for (let cz = Math.floor(minChunkZ / step) * step; cz <= maxChunkZ; cz += step) {
+            let cellSeed = (seed + BigInt(cx * 3418731287) + BigInt(cz * 132897987) + BigInt(cfg.salt)) & 0xFFFFFFFFFFFFn;
+            let randX = Number((cellSeed >> 12n) % BigInt(cfg.spacing - cfg.separation));
+            let randZ = Number((cellSeed >> 24n) % BigInt(cfg.spacing - cfg.separation));
+
+            let finalChunkX = cx + Math.abs(randX);
+            let finalChunkZ = cz + Math.abs(randZ);
+            let blockX = finalChunkX * 16 + 8;
+            let blockZ = finalChunkZ * 16 + 8;
+
+            let dist = Math.round(Math.hypot(blockX - originX, blockZ - originZ));
+            if (dist <= rangeBlocks) {
+                results.push({
+                    type: structureType,
+                    name: cfg.name,
+                    icon: cfg.icon,
+                    dimension: cfg.dimension,
+                    x: blockX,
+                    z: blockZ,
+                    distance: dist
+                });
+            }
+        }
+    }
+
+    results.sort((a, b) => a.distance - b.distance);
+    return results.slice(0, 30);
+}
+
 // Endpoint: Map Info & Seed
 app.get('/api/servers/:id/map-info', (req, res) => {
     const { id } = req.params;
@@ -1037,6 +1104,64 @@ app.get('/api/servers/:id/map-info', (req, res) => {
         chunkbaseUrl: levelSeed 
             ? `https://www.chunkbase.com/apps/seed-map#seed=${encodeURIComponent(levelSeed)}&platform=java_1_21_1`
             : `https://www.chunkbase.com/apps/seed-map#platform=java_1_21_1`
+    });
+});
+
+// Endpoint: Structure Finder API
+app.get('/api/servers/:id/structures', (req, res) => {
+    const { id } = req.params;
+    const { type = 'village', x = 0, z = 0, range = 3000 } = req.query;
+    const workingDir = getServerWorkingDir(id);
+    const props = readServerProperties(workingDir);
+    const seed = props['level-seed'] || props['seed'] || '12345';
+
+    const originX = parseInt(x) || 0;
+    const originZ = parseInt(z) || 0;
+    const searchRange = parseInt(range) || 3000;
+
+    const structures = getStructureLocations(seed, type, originX, originZ, searchRange);
+    res.json({
+        seed,
+        type,
+        origin: { x: originX, z: originZ },
+        count: structures.length,
+        structures
+    });
+});
+
+// Endpoint: Slime Chunks Grid API
+app.get('/api/servers/:id/slime-chunks', (req, res) => {
+    const { id } = req.params;
+    const { minChunkX = -20, maxChunkX = 20, minChunkZ = -20, maxChunkZ = 20 } = req.query;
+    const workingDir = getServerWorkingDir(id);
+    const props = readServerProperties(workingDir);
+    const seed = props['level-seed'] || props['seed'] || '12345';
+
+    const minX = parseInt(minChunkX);
+    const maxX = parseInt(maxChunkX);
+    const minZ = parseInt(minChunkZ);
+    const maxZ = parseInt(maxChunkZ);
+
+    const slimeChunks = [];
+    for (let cx = minX; cx <= maxX; cx++) {
+        for (let cz = minZ; cz <= maxZ; cz++) {
+            if (isSlimeChunk(seed, cx, cz)) {
+                slimeChunks.push({
+                    chunkX: cx,
+                    chunkZ: cz,
+                    minBlockX: cx * 16,
+                    maxBlockX: cx * 16 + 15,
+                    minBlockZ: cz * 16,
+                    maxBlockZ: cz * 16 + 15
+                });
+            }
+        }
+    }
+
+    res.json({
+        seed,
+        count: slimeChunks.length,
+        slimeChunks
     });
 });
 
