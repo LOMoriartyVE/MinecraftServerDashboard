@@ -155,12 +155,12 @@ export default function WorldMap({ serverId, apiFetch, showToast }) {
   // Slime Chunk Checker
   const isSlimeChunk = (chunkX, chunkZ) => {
     try {
-      let seed = BigInt(seedInput || '12345');
-      let cx = BigInt(chunkX);
-      let cz = BigInt(chunkZ);
-      let s = (seed + (cx * cx * 0x4c1906n) + (cx * 0x5ac0dbn) + (cz * cz * 0x4307a7n) + (cz * 0x5f24fn) ^ 0x3ad8025fn) & 0xFFFFFFFFFFFFn;
-      let nextSeed = (s * 0x5DEECE66DL + 0xBL) & 0xFFFFFFFFFFFFn;
-      return Number(nextSeed >> 17n) % 10 === 0;
+      const seed = BigInt(seedInput || '12345');
+      const cx = BigInt(chunkX);
+      const cz = BigInt(chunkZ);
+      const s = (seed + (cx * cx * BigInt(0x4c1906)) + (cx * BigInt(0x5ac0db)) + (cz * cz * BigInt(0x4307a7)) + (cz * BigInt(0x5f24f)) ^ BigInt(0x3ad8025f)) & BigInt('0xFFFFFFFFFFFF');
+      const nextSeed = (s * BigInt('0x5DEECE66D') + BigInt(11)) & BigInt('0xFFFFFFFFFFFF');
+      return Number(nextSeed >> BigInt(17)) % 10 === 0;
     } catch (e) { return false; }
   };
 
