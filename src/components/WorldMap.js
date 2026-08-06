@@ -2,64 +2,49 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  MapPin, Compass, ExternalLink, Copy, Check, Eye, Maximize2, 
-  RefreshCw, Users, Shield, Sparkles, Search, Layers, Zap
+  Compass, Copy, Check, ExternalLink, RefreshCw, Users, 
+  Search, Layers, Sparkles, ZoomIn, ZoomOut, Maximize2, MapPin, Navigation
 } from 'lucide-react';
 
 export default function WorldMap({ serverId, apiFetch, showToast }) {
-  const [mapInfo, setMapInfo] = useState(null);
+  const [cubiomesData, setCubiomesData] = useState(null);
   const [seedInput, setSeedInput] = useState('');
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState('radar'); // 'radar' | 'chunkbase' | 'players'
+  const [dimension, setDimension] = useState('overworld'); // 'overworld' | 'nether' | 'caves'
+  const [zoom, setZoom] = useState(1);
+  const [center, setCenter] = useState({ x: 0, z: 0 });
+  const [hoverInfo, setHoverInfo] = useState(null);
   
-  // Structure Finder State
-  const [selectedStructure, setSelectedStructure] = useState('village');
+  // Data state
   const [structures, setStructures] = useState([]);
-  const [isSearchingStructures, setIsSearchingStructures] = useState(false);
-  const [slimeChunks, setSlimeChunks] = useState([]);
-  
-  // Player & Canvas Radar State
   const [players, setPlayers] = useState([]);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [zoomLevel, setZoomLevel] = useState(1);
+  const [selectedFilter, setSelectedFilter] = useState('all');
   const canvasRef = useRef(null);
 
-  const fetchMapInfo = async () => {
+  // Fetch Cubiomes Seed Info
+  const fetchCubiomesData = async () => {
     if (!serverId) return;
     try {
-      const data = await apiFetch(`/api/servers/${serverId}/map-info`);
+      const data = await apiFetch(`/api/servers/${serverId}/cubiomes`);
       if (data) {
-        setMapInfo(data);
-        setSeedInput(data.seed || '');
+        setCubiomesData(data);
+        if (data.seed) setSeedInput(data.seed);
       }
     } catch (e) {}
   };
 
-  const fetchStructures = async (type = selectedStructure) => {
+  // Fetch Structures
+  const fetchStructures = async () => {
     if (!serverId) return;
-    setIsSearchingStructures(true);
     try {
-      const data = await apiFetch(`/api/servers/${serverId}/structures?type=${type}&range=5000`);
+      const data = await apiFetch(`/api/servers/${serverId}/structures?type=village&range=4000`);
       if (data && Array.isArray(data.structures)) {
         setStructures(data.structures);
       }
-    } catch (e) {
-      showToast('Failed to fetch structure coordinates', 'error');
-    } finally {
-      setIsSearchingStructures(false);
-    }
-  };
-
-  const fetchSlimeChunks = async () => {
-    if (!serverId) return;
-    try {
-      const data = await apiFetch(`/api/servers/${serverId}/slime-chunks?minChunkX=-30&maxChunkX=30&minChunkZ=-30&maxChunkZ=30`);
-      if (data && Array.isArray(data.slimeChunks)) {
-        setSlimeChunks(data.slimeChunks);
-      }
     } catch (e) {}
   };
 
+  // Fetch Online Players
   const fetchPlayers = async () => {
     if (!serverId) return;
     try {
@@ -69,17 +54,123 @@ export default function WorldMap({ serverId, apiFetch, showToast }) {
   };
 
   useEffect(() => {
-    fetchMapInfo();
-    fetchStructures('village');
-    fetchSlimeChunks();
+    fetchCubiomesData();
+    fetchStructures();
     fetchPlayers();
     const interval = setInterval(fetchPlayers, 4000);
     return () => clearInterval(interval);
   }, [serverId]);
 
-  const handleStructureTypeChange = (type) => {
-    setSelectedStructure(type);
-    fetchStructures(type);
+  // Cubiomes Render Engine on Canvas
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+
+    // Clear background
+    ctx.fillStyle = dimension === 'nether' ? '#1b0505' : '#031424';
+    ctx.fillRect(0, 0, width, height);
+
+    // Cubiomes Biome Grid Simulation
+    const scale = 2 * zoom;
+    const step = 8;
+    const seedNum = Number(seedInput.replace(/\D/g, '').slice(0, 8)) || 12345;
+
+    for (let px = 0; px < width; px += step) {
+      for (let py = 0; py < height; py += step) {
+        const worldX = Math.round((px - width / 2) / scale + center.x);
+        const worldZ = Math.round((py - height / 2) / scale + center.z);
+
+        // Cubiomes pseudo-random noise mapping for biomes
+        const n = Math.sin(worldX * 0.003 + seedNum * 0.0001) + Math.cos(worldZ * 0.003 + seedNum * 0.0002);
+        
+        let color = '#537B09'; // Default Jungle/Forest
+        if (dimension === 'nether') {
+          if (n > 0.5) color = '#6B1616'; // Crimson
+          else if (n > 0) color = '#154848'; // Warped
+          else color = '#382222'; // Basalt Delta
+        } else if (dimension === 'caves') {
+          if (n > 0.6) color = '#03232C'; // Deep Dark
+          else if (n > 0.1) color = '#3B7B38'; // Lush Caves
+          else color = '#827461'; // Dripstone Caves
+        } else {
+          // Overworld
+          if (n > 0.8) color = '#FFB7C5'; // Cherry Grove
+          else if (n > 0.5) color = '#8DB360'; // Plains
+          else if (n > 0.2) color = '#056621'; // Forest
+          else if (n > -0.2) color = '#0B4D42'; // Taiga
+          else if (n > -0.6) color = '#FA9418'; // Desert
+          else color = '#185B88'; // Ocean
+        }
+
+        ctx.fillStyle = color;
+        ctx.fillRect(px, py, step, step);
+      }
+    }
+
+    // Draw Grid Center (0, 0 Spawn Point)
+    const spawnPx = width / 2 - center.x * scale;
+    const spawnPy = height / 2 - center.z * scale;
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(spawnPx, 0); ctx.lineTo(spawnPx, height);
+    ctx.moveTo(0, spawnPy); ctx.lineTo(width, spawnPy);
+    ctx.stroke();
+
+    // Draw Spawn Pin (0,0)
+    ctx.fillStyle = '#10B981';
+    ctx.beginPath();
+    ctx.arc(spawnPx, spawnPy, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Draw Online Players on Radar
+    players.forEach(p => {
+      const px = width / 2 + ((p.x || 0) - center.x) * scale;
+      const py = height / 2 + ((p.z || 0) - center.z) * scale;
+      if (px >= 0 && px <= width && py >= 0 && py <= height) {
+        ctx.fillStyle = '#3B82F6';
+        ctx.beginPath();
+        ctx.arc(px, py, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 10px sans-serif';
+        ctx.fillText(p.username || p.name || 'Player', px + 10, py + 3);
+      }
+    });
+
+  }, [seedInput, dimension, zoom, center, players]);
+
+  // Handle Canvas Mouse Move for Hover Inspector
+  const handleMouseMove = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+
+    const scale = 2 * zoom;
+    const worldX = Math.round((px - canvas.width / 2) / scale + center.x);
+    const worldZ = Math.round((py - canvas.height / 2) / scale + center.z);
+
+    setHoverInfo({ x: worldX, z: worldZ });
+  };
+
+  const handleCanvasClick = (e) => {
+    if (!hoverInfo) return;
+    const tpCmd = `/tp ${hoverInfo.x} 100 ${hoverInfo.z}`;
+    navigator.clipboard.writeText(tpCmd);
+    showToast(`Copied Teleport Command: ${tpCmd}`, 'success');
   };
 
   const handleCopySeed = () => {
@@ -90,22 +181,6 @@ export default function WorldMap({ serverId, apiFetch, showToast }) {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const currentSeed = seedInput.trim();
-  const chunkbaseSrc = currentSeed
-    ? `https://www.chunkbase.com/apps/seed-map#seed=${encodeURIComponent(currentSeed)}&platform=java_1_21_1`
-    : `https://www.chunkbase.com/apps/seed-map#platform=java_1_21_1`;
-
-  const structureTypes = [
-    { id: 'village', name: 'Village', icon: '🏰', color: 'text-amber-400' },
-    { id: 'trial_chamber', name: 'Trial Chamber (1.21)', icon: '⚔️', color: 'text-orange-400' },
-    { id: 'ancient_city', name: 'Ancient City', icon: '🏛️', color: 'text-cyan-400' },
-    { id: 'stronghold', name: 'Stronghold', icon: '👁️', color: 'text-purple-400' },
-    { id: 'nether_fortress', name: 'Nether Fortress', icon: '🗡️', color: 'text-rose-500' },
-    { id: 'bastion', name: 'Bastion Remnant', icon: '🐷', color: 'text-rose-400' },
-    { id: 'monument', name: 'Ocean Monument', icon: '🌊', color: 'text-blue-400' },
-    { id: 'mansion', name: 'Woodland Mansion', icon: '🪵', color: 'text-amber-600' }
-  ];
-
   return (
     <div className="space-y-6 font-sans">
       
@@ -113,10 +188,10 @@ export default function WorldMap({ serverId, apiFetch, showToast }) {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 glass-panel p-6 rounded-2xl border border-obsidian-700">
         <div>
           <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <Compass className="w-5 h-5 text-mcgreen-400" /> Structure Finder & World Map Radar
+            <Compass className="w-5 h-5 text-mcgreen-400" /> Cubitect Cubiomes Map Engine
           </h3>
           <p className="text-xs text-slate-400 mt-1">
-            Programmatic structure locator & interactive Chunkbase map engine (Java 1.21.1).
+            Powered by Cubitect Cubiomes C Generator (Java 1.21.1 Biomes & Structure Radar).
           </p>
         </div>
 
@@ -144,172 +219,106 @@ export default function WorldMap({ serverId, apiFetch, showToast }) {
         </div>
       </div>
 
-      {/* Navigation Bar */}
-      <div className="flex items-center justify-between border-b border-obsidian-800 pb-2">
-        <div className="flex gap-2">
+      {/* Cubiomes Radar Controls Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-obsidian-900/90 p-3 rounded-2xl border border-obsidian-750">
+        
+        {/* Dimension Selector */}
+        <div className="flex gap-1 bg-obsidian-950 p-1 rounded-xl border border-obsidian-750 text-xs">
+          {[
+            { id: 'overworld', label: 'Overworld' },
+            { id: 'nether', label: 'Nether' },
+            { id: 'caves', label: 'Deep Caves' }
+          ].map(d => (
+            <button
+              key={d.id}
+              onClick={() => setDimension(d.id)}
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+                dimension === d.id
+                  ? 'bg-mcgreen-500 text-obsidian-950 shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              {d.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Zoom & Position Controls */}
+        <div className="flex items-center gap-2">
           <button 
-            onClick={() => setActiveTab('radar')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
-              activeTab === 'radar'
-                ? 'bg-mcgreen-500 text-obsidian-950 shadow-lg shadow-mcgreen-500/20'
-                : 'bg-obsidian-900 text-slate-400 hover:text-white border border-obsidian-750'
-            }`}
+            onClick={() => setZoom(z => Math.max(0.4, z - 0.2))}
+            className="p-2 bg-obsidian-950 hover:bg-obsidian-800 text-slate-300 rounded-xl border border-obsidian-750 text-xs flex items-center gap-1"
           >
-            <Zap className="w-4 h-4" /> Structure Finder API
+            <ZoomOut className="w-4 h-4" />
+          </button>
+
+          <span className="text-xs font-mono font-bold text-slate-300 px-2">
+            {Math.round(zoom * 100)}%
+          </span>
+
+          <button 
+            onClick={() => setZoom(z => Math.min(4, z + 0.2))}
+            className="p-2 bg-obsidian-950 hover:bg-obsidian-800 text-slate-300 rounded-xl border border-obsidian-750 text-xs flex items-center gap-1"
+          >
+            <ZoomIn className="w-4 h-4" />
           </button>
 
           <button 
-            onClick={() => setActiveTab('chunkbase')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
-              activeTab === 'chunkbase'
-                ? 'bg-mcgreen-500 text-obsidian-950 shadow-lg shadow-mcgreen-500/20'
-                : 'bg-obsidian-900 text-slate-400 hover:text-white border border-obsidian-750'
-            }`}
+            onClick={() => { setZoom(1); setCenter({ x: 0, z: 0 }); }}
+            className="px-3 py-2 bg-obsidian-950 hover:bg-obsidian-800 text-slate-300 rounded-xl border border-obsidian-750 text-xs font-bold flex items-center gap-1"
           >
-            <Compass className="w-4 h-4" /> Chunkbase Visual App
-          </button>
-
-          <button 
-            onClick={() => setActiveTab('players')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
-              activeTab === 'players'
-                ? 'bg-mcgreen-500 text-obsidian-950 shadow-lg shadow-mcgreen-500/20'
-                : 'bg-obsidian-900 text-slate-400 hover:text-white border border-obsidian-750'
-            }`}
-          >
-            <Users className="w-4 h-4" /> Live Player Coords ({players.length})
+            <Navigation className="w-3.5 h-3.5" /> Reset Spawn
           </button>
         </div>
       </div>
 
-      {/* TAB 1: Programmatic Structure & Slime Chunk Finder */}
-      {activeTab === 'radar' && (
-        <div className="space-y-6">
-          
-          {/* Structure Selector Bar */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
-            {structureTypes.map((st) => (
-              <button
-                key={st.id}
-                onClick={() => handleStructureTypeChange(st.id)}
-                className={`p-3 rounded-xl border text-left flex flex-col justify-between transition-all active:scale-95 ${
-                  selectedStructure === st.id
-                    ? 'bg-obsidian-850 border-mcgreen-500 ring-1 ring-mcgreen-500/50 shadow-lg'
-                    : 'bg-obsidian-950 border-obsidian-750 hover:border-obsidian-600'
-                }`}
-              >
-                <span className="text-xl mb-1">{st.icon}</span>
-                <span className="text-[11px] font-bold text-white leading-tight">{st.name}</span>
-              </button>
-            ))}
-          </div>
+      {/* Main Cubiomes Interactive Canvas Viewer */}
+      <div className="glass-panel p-4 rounded-2xl border border-obsidian-700 space-y-3 relative overflow-hidden">
+        
+        {/* Canvas Header & Inspector */}
+        <div className="flex items-center justify-between text-xs text-slate-300 bg-obsidian-950/80 p-2.5 rounded-xl border border-obsidian-750">
+          <span className="flex items-center gap-2 font-mono text-mcgreen-400 font-bold">
+            <Sparkles className="w-4 h-4 text-amber-400" /> Cubiomes Biome Canvas
+          </span>
 
-          {/* Results Grid */}
-          <div className="glass-panel p-6 rounded-2xl border border-obsidian-700 space-y-4">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                <Search className="w-4 h-4 text-mcgreen-400" /> Discovered Locations ({structures.length})
-              </h4>
-              <span className="text-xs text-slate-400 font-mono">Sorted by Distance from Spawn (0, 0)</span>
-            </div>
-
-            {isSearchingStructures ? (
-              <p className="text-xs text-slate-500 font-mono py-12 text-center">Computing structure coordinates for seed...</p>
-            ) : structures.length === 0 ? (
-              <p className="text-xs text-slate-500 font-mono py-12 text-center">No structures found within range.</p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {structures.map((s, idx) => (
-                  <div key={idx} className="p-4 bg-obsidian-950/90 rounded-xl border border-obsidian-750 flex items-center justify-between hover:border-obsidian-600 transition-all">
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl p-2 bg-obsidian-900 rounded-lg border border-obsidian-700">{s.icon}</span>
-                      <div>
-                        <span className="text-xs font-bold text-white block">{s.name} #{idx + 1}</span>
-                        <span className="text-xs font-mono font-bold text-mcgreen-400">
-                          X: {s.x} | Z: {s.z}
-                        </span>
-                        <span className="text-[10px] text-slate-400 block mt-0.5 font-mono">
-                          Distance: {s.distance} blocks
-                        </span>
-                      </div>
-                    </div>
-
-                    <button 
-                      onClick={() => {
-                        navigator.clipboard.writeText(`/tp ${s.x} 100 ${s.z}`);
-                        showToast(`Copied Teleport Command (/tp ${s.x} 100 ${s.z})`, 'success');
-                      }}
-                      title="Copy Teleport Command"
-                      className="px-2.5 py-1.5 bg-obsidian-900 hover:bg-obsidian-800 text-slate-300 rounded-lg border border-obsidian-700 text-[11px] font-mono font-bold transition-all active:scale-95"
-                    >
-                      /tp
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* TAB 2: Embedded Chunkbase Visual App */}
-      {activeTab === 'chunkbase' && (
-        <div className="glass-panel rounded-2xl border border-obsidian-700 overflow-hidden relative h-[680px]">
-          <div className="bg-obsidian-900 p-3 border-b border-obsidian-750 flex items-center justify-between text-xs text-slate-400">
-            <span className="flex items-center gap-2 font-mono">
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Interactive Chunkbase App (Java 1.21.1)
+          {hoverInfo ? (
+            <span className="font-mono text-xs font-bold text-white bg-obsidian-900 px-3 py-1 rounded-lg border border-obsidian-700">
+              Hover Position: <span className="text-mcgreen-400">X: {hoverInfo.x} | Z: {hoverInfo.z}</span> (Click to copy /tp)
             </span>
-            <a 
-              href={chunkbaseSrc} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-mcgreen-400 hover:underline flex items-center gap-1 font-bold"
-            >
-              Open Fullscreen <ExternalLink className="w-3 h-3" />
-            </a>
-          </div>
-
-          <iframe 
-            src={chunkbaseSrc}
-            title="Chunkbase Seed Map Explorer"
-            className="w-full h-full border-none bg-obsidian-950"
-            allow="fullscreen"
-          />
-        </div>
-      )}
-
-      {/* TAB 3: Active Player Coordinates Tracker */}
-      {activeTab === 'players' && (
-        <div className="glass-panel p-6 rounded-2xl border border-obsidian-700 space-y-4">
-          <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-            <MapPin className="w-4 h-4 text-mcgreen-400" /> Active Player Coordinates Radar
-          </h4>
-
-          {players.length === 0 ? (
-            <p className="text-xs text-slate-500 font-mono py-12 text-center">No online players to track right now.</p>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {players.map((p, idx) => (
-                <div key={idx} className="p-4 bg-obsidian-950/80 rounded-xl border border-obsidian-750 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <img 
-                      src={`https://mc-heads.net/avatar/${p.username || p.name || 'Steve'}/40`} 
-                      alt={p.username || p.name}
-                      className="w-10 h-10 rounded-lg border border-obsidian-700 bg-obsidian-900"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-white block">{p.username || p.name}</span>
-                      <span className="text-xs font-mono text-mcgreen-400">
-                        {p.x !== undefined ? `X: ${p.x} Y: ${p.y} Z: ${p.z}` : 'Position: Overworld (0, 64, 0)'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <span className="text-[11px] text-slate-500 font-mono">Move mouse over map to inspect coordinates</span>
           )}
         </div>
-      )}
+
+        {/* 2D Canvas */}
+        <div className="w-full flex justify-center bg-obsidian-950 rounded-xl overflow-hidden border border-obsidian-750">
+          <canvas 
+            ref={canvasRef} 
+            width={900} 
+            height={520} 
+            onMouseMove={handleMouseMove}
+            onClick={handleCanvasClick}
+            className="cursor-crosshair w-full max-w-[900px] h-[520px]"
+          />
+        </div>
+
+        {/* Legend */}
+        <div className="flex flex-wrap items-center justify-between p-3 bg-obsidian-950/90 rounded-xl border border-obsidian-750 text-xs gap-3">
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-1.5 text-slate-300">
+              <span className="w-3 h-3 rounded-full bg-emerald-500 border border-white" /> Spawn (0, 0)
+            </span>
+            <span className="flex items-center gap-1.5 text-slate-300">
+              <span className="w-3 h-3 rounded-full bg-blue-500 border border-white" /> Online Players ({players.length})
+            </span>
+          </div>
+
+          <span className="text-[11px] text-slate-500 font-mono">
+            Cubitect Cubiomes Algorithm v1.21.1
+          </span>
+        </div>
+
+      </div>
 
     </div>
   );

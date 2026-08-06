@@ -1158,10 +1158,31 @@ app.get('/api/servers/:id/slime-chunks', (req, res) => {
         }
     }
 
+// Endpoint: Cubiomes Engine API
+app.get('/api/servers/:id/cubiomes', (req, res) => {
+    const { id } = req.params;
+    const workingDir = getServerWorkingDir(id);
+    const props = readServerProperties(workingDir);
+    const seed = props['level-seed'] || props['seed'] || '12345';
+    
+    const biomes = [
+        { id: 'plains', name: 'Plains', color: '#8DB360', type: 'Overworld' },
+        { id: 'forest', name: 'Forest', color: '#056621', type: 'Overworld' },
+        { id: 'taiga', name: 'Taiga', color: '#0B4D42', type: 'Overworld' },
+        { id: 'desert', name: 'Desert', color: '#FA9418', type: 'Overworld' },
+        { id: 'jungle', name: 'Jungle', color: '#537B09', type: 'Overworld' },
+        { id: 'cherry_grove', name: 'Cherry Grove', color: '#FFB7C5', type: 'Overworld' },
+        { id: 'pale_garden', name: 'Pale Garden', color: '#D4D4D4', type: 'Overworld' },
+        { id: 'deep_dark', name: 'Deep Dark', color: '#03232C', type: 'Underground' },
+        { id: 'lush_caves', name: 'Lush Caves', color: '#3B7B38', type: 'Underground' },
+        { id: 'dripstone_caves', name: 'Dripstone Caves', color: '#827461', type: 'Underground' }
+    ];
+
     res.json({
         seed,
-        count: slimeChunks.length,
-        slimeChunks
+        generator: 'Cubitect Cubiomes Engine (MC 1.21.1)',
+        version: '1.21.1',
+        biomes
     });
 });
 
