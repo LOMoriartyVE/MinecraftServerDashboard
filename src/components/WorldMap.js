@@ -32,7 +32,7 @@ export default function WorldMap({ serverId, apiFetch, showToast }) {
   // Seed & Dimension State
   const [seedInput, setSeedInput] = useState('');
   const [dimension, setDimension] = useState('overworld'); // 'overworld' | 'nether' | 'caves' | 'end'
-  const [version, setVersion] = useState('Java 1.21.1');
+  const [version, setVersion] = useState('Java 26.2');
   const [copied, setCopied] = useState(false);
 
   // Coordinate Search & Pan State
@@ -458,6 +458,7 @@ export default function WorldMap({ serverId, apiFetch, showToast }) {
               onChange={(e) => setVersion(e.target.value)}
               className="bg-transparent text-xs font-mono font-bold text-white outline-none w-full"
             >
+              <option value="Java 26.2">Java 26.2 (Latest)</option>
               <option value="Java 1.21.1">Java 1.21.1 (NeoForge)</option>
               <option value="Java 1.20.4">Java 1.20.4</option>
               <option value="Bedrock Edition">Bedrock Edition</option>

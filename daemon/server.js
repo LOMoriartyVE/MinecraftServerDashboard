@@ -34,6 +34,69 @@ try {
     });
 } catch(e) {}
 
+// Playerdata migration from WiseHosting UUID (LOMoriartyVE: 0d961544-d556-3110-b171-e736b04290f7) to current UUID (LORkyVE: a6d79aba-151e-43cf-86d4-d023733d3a6f)
+try {
+    const oldUuid = '0d961544-d556-3110-b171-e736b04290f7';
+    const newUuid = 'a6d79aba-151e-43cf-86d4-d023733d3a6f';
+    const server2World = path.resolve(SERVERS_DIR, 'Server2', 'Reoublic');
+
+    // 1. playerdata
+    const playerdataDir = path.join(server2World, 'playerdata');
+    if (fs.existsSync(playerdataDir)) {
+        const oldDat = path.join(playerdataDir, `${oldUuid}.dat`);
+        const oldDatOld = path.join(playerdataDir, `${oldUuid}.dat_old`);
+        const newDat = path.join(playerdataDir, `${newUuid}.dat`);
+        const newDatOld = path.join(playerdataDir, `${newUuid}.dat_old`);
+
+        if (fs.existsSync(oldDat)) {
+            if (fs.existsSync(newDat)) {
+                fs.copyFileSync(newDat, path.join(playerdataDir, `${newUuid}.dat.bak`));
+            }
+            fs.copyFileSync(oldDat, newDat);
+        }
+        if (fs.existsSync(oldDatOld)) {
+            fs.copyFileSync(oldDatOld, newDatOld);
+        }
+    }
+
+    // 2. advancements
+    const advancementsDir = path.join(server2World, 'advancements');
+    if (fs.existsSync(advancementsDir)) {
+        const oldJson = path.join(advancementsDir, `${oldUuid}.json`);
+        const newJson = path.join(advancementsDir, `${newUuid}.json`);
+        if (fs.existsSync(oldJson)) {
+            if (fs.existsSync(newJson)) {
+                fs.copyFileSync(newJson, path.join(advancementsDir, `${newUuid}.json.bak`));
+            }
+            fs.copyFileSync(oldJson, newJson);
+        }
+    }
+
+    // 3. stats
+    const statsDir = path.join(server2World, 'stats');
+    if (fs.existsSync(statsDir)) {
+        const oldJson = path.join(statsDir, `${oldUuid}.json`);
+        const newJson = path.join(statsDir, `${newUuid}.json`);
+        if (fs.existsSync(oldJson)) {
+            if (fs.existsSync(newJson)) {
+                fs.copyFileSync(newJson, path.join(statsDir, `${newJson}.bak`));
+            }
+            fs.copyFileSync(oldJson, newJson);
+        }
+    }
+
+    // 4. backpacks
+    const backpacksDir = path.join(server2World, 'backpacks');
+    if (fs.existsSync(backpacksDir)) {
+        const oldFolder = path.join(backpacksDir, oldUuid);
+        const newFolder = path.join(backpacksDir, newUuid);
+        if (fs.existsSync(oldFolder)) {
+            fs.cpSync(oldFolder, newFolder, { recursive: true });
+        }
+    }
+} catch (e) {}
+
+
 const DEFAULT_PORT = parseInt(process.env.PORT || '3001', 10);
 
 // Fixed subdomain based on user computer name so the URL never changes
@@ -1141,15 +1204,23 @@ app.get('/api/servers/:id/map-info', (req, res) => {
     const props = readServerProperties(workingDir);
     let levelSeed = props['level-seed'] || props['seed'] || '';
 
+    const verFile = path.join(workingDir, 'version.json');
+    let ver = '26.2';
+    try {
+        if (fs.existsSync(verFile)) {
+            ver = JSON.parse(fs.readFileSync(verFile, 'utf8')).mcVersion || '26.2';
+        }
+    } catch(e) {}
+
     res.json({
         seed: levelSeed,
         levelName: props['level-name'] || 'world',
         gameMode: props['gamemode'] || 'survival',
         difficulty: props['difficulty'] || 'easy',
-        mcVersion: '1.21.1',
+        mcVersion: ver,
         chunkbaseUrl: levelSeed 
-            ? `https://www.chunkbase.com/apps/seed-map#seed=${encodeURIComponent(levelSeed)}&platform=java_1_21_1`
-            : `https://www.chunkbase.com/apps/seed-map#platform=java_1_21_1`
+            ? `https://www.chunkbase.com/apps/seed-map#seed=${encodeURIComponent(levelSeed)}&platform=java_26_2`
+            : `https://www.chunkbase.com/apps/seed-map#platform=java_26_2`
     });
 });
 
