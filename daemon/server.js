@@ -22,6 +22,43 @@ app.options('*', cors());
 
 app.use(express.json());
 
+// Proxy endpoint for BlueMap web server (bypasses browser mixed-content CORS blocks on HTTPS/Vercel)
+app.use('/bluemap/:serverId', (req, res) => {
+    const serverId = req.params.serverId || 'Server1';
+    const port = (serverId.toLowerCase() === 'server2') ? 8101 : 8100;
+    const subPath = req.url === '/' ? '/index.html' : req.url;
+    const targetUrl = `http://127.0.0.1:${port}${subPath}`;
+
+    const clientReq = http.request(targetUrl, {
+        method: req.method,
+        headers: {
+            ...req.headers,
+            host: `127.0.0.1:${port}`
+        }
+    }, (clientRes) => {
+        res.writeHead(clientRes.statusCode, clientRes.headers);
+        clientRes.pipe(res, { end: true });
+    });
+
+    clientReq.on('error', (err) => {
+        if (!res.headersSent) {
+            res.status(502).send(`
+                <html>
+                    <body style="background:#090d16; color:#94a3b8; font-family:sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; text-align:center;">
+                        <div>
+                            <h2 style="color:#f59e0b;">BlueMap Web Server Offline</h2>
+                            <p>Could not connect to BlueMap on 127.0.0.1:${port}.</p>
+                            <p style="font-size:12px; color:#64748b;">Ensure the Minecraft server is running and BlueMap mod is loaded.</p>
+                        </div>
+                    </body>
+                </html>
+            `);
+        }
+    });
+
+    req.pipe(clientReq, { end: true });
+});
+
 const SERVERS_DIR = path.resolve(__dirname, '../../Servers');
 
 // Recursively copy all missing NeoForge libraries from Server1 to Server2

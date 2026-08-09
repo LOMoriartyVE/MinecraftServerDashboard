@@ -445,6 +445,7 @@ export default function Dashboard() {
           <BlueMap 
             serverId={selectedServerId}
             activeServer={activeServerInfo}
+            daemonUrl={daemonUrl}
             apiFetch={apiFetch}
             showToast={showToast}
           />
