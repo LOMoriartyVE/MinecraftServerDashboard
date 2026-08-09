@@ -24,6 +24,88 @@ app.use(express.json());
 
 const SERVERS_DIR = path.resolve(__dirname, '../../Servers');
 
+// Recursively copy all missing NeoForge libraries from Server1 to Server2
+function copyFolderRecursiveSync(src, dest) {
+    if (!fs.existsSync(dest)) {
+        fs.mkdirSync(dest, { recursive: true });
+    }
+    const entries = fs.readdirSync(src, { withFileTypes: true });
+    for (const entry of entries) {
+        const srcPath = path.join(src, entry.name);
+        const destPath = path.join(dest, entry.name);
+        if (entry.isDirectory()) {
+            copyFolderRecursiveSync(srcPath, destPath);
+        } else {
+            if (!fs.existsSync(destPath)) {
+                try { fs.copyFileSync(srcPath, destPath); } catch(e) {}
+            }
+        }
+    }
+}
+
+try {
+    const srcLibs = path.join(SERVERS_DIR, 'Server1', 'libraries');
+    const destLibs = path.join(SERVERS_DIR, 'Server2', 'libraries');
+    if (fs.existsSync(srcLibs)) {
+        copyFolderRecursiveSync(srcLibs, destLibs);
+    }
+} catch(e) {}
+
+// Ensure BlueMap JAR is present in Server1 & Server2 mod folders
+try {
+    const rootBlueMap = path.resolve(__dirname, '../../bluemap-5.7-neoforge.jar');
+    if (fs.existsSync(rootBlueMap)) {
+        const s1Mods = path.join(SERVERS_DIR, 'Server1', 'Mods');
+        const s2Mods = path.join(SERVERS_DIR, 'Server2', 'mods');
+        if (!fs.existsSync(s1Mods)) fs.mkdirSync(s1Mods, { recursive: true });
+        if (!fs.existsSync(s2Mods)) fs.mkdirSync(s2Mods, { recursive: true });
+        fs.copyFileSync(rootBlueMap, path.join(s1Mods, 'bluemap-5.7-neoforge.jar'));
+        fs.copyFileSync(rootBlueMap, path.join(s2Mods, 'bluemap-5.7-neoforge.jar'));
+    }
+} catch(e) {}
+
+// Automatically organize DownloadedMods for Server2 into ClientOnly, ServerOnly, BothClientAndServer
+try {
+    const downloadDir = path.join(SERVERS_DIR, 'Server2', 'DownloadedMods');
+    if (fs.existsSync(downloadDir)) {
+        const clientDir = path.join(downloadDir, 'ClientOnlyMods');
+        const serverDir = path.join(downloadDir, 'ServerOnlyMods');
+        const bothDir = path.join(downloadDir, 'BothClientAndServerMods');
+        const serverModsDir = path.join(SERVERS_DIR, 'Server2', 'mods');
+
+        [clientDir, serverDir, bothDir, serverModsDir].forEach(d => {
+            if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+        });
+
+        const clientOnlyList = [
+            'blur-', 'entity_model_features', 'entity_texture_features', 'health-indicator',
+            'immersivearmorhud', 'InventoryProfilesNext', 'iris-', 'ItemBorders',
+            'lambdynamiclights', 'libIPN', 'Measurements', 'moremousetweaks',
+            'MouseTweaks', 'PickUpNotifier', 'shulkerboxtooltip', 'skinlayers3d',
+            'smoothswapping', 'sodium-', 'yet_another_config_lib'
+        ];
+
+        const serverOnlyList = ['skinrestorer', 'villagernames'];
+
+        const files = fs.readdirSync(downloadDir).filter(f => f.endsWith('.jar'));
+        files.forEach(file => {
+            const srcPath = path.join(downloadDir, file);
+            const lower = file.toLowerCase();
+
+            let categoryDir = bothDir;
+            if (clientOnlyList.some(k => lower.includes(k.toLowerCase()))) {
+                categoryDir = clientDir;
+            } else if (serverOnlyList.some(k => lower.includes(k.toLowerCase()))) {
+                categoryDir = serverDir;
+                try { fs.copyFileSync(srcPath, path.join(serverModsDir, file)); } catch(e) {}
+            } else {
+                try { fs.copyFileSync(srcPath, path.join(serverModsDir, file)); } catch(e) {}
+            }
+            try { fs.copyFileSync(srcPath, path.join(categoryDir, file)); } catch(e) {}
+        });
+    }
+} catch(e) {}
+
 // Automatically clean up old temporary setup files (.py, .bat, .html) from project root
 try {
     const rootDir = path.resolve(__dirname, '../../');
@@ -1876,6 +1958,48 @@ getFreePort(DEFAULT_PORT, (freePort) => {
                 try { fs.renameSync(fp, fp + '.disabled'); } catch(e) {}
             }
         });
+    } catch(e) {}
+
+    // Automatically organize DownloadedMods for Server2 into ClientOnly, ServerOnly, BothClientAndServer
+    try {
+        const downloadDir = path.join(SERVERS_DIR, 'Server2', 'DownloadedMods');
+        if (fs.existsSync(downloadDir)) {
+            const clientDir = path.join(downloadDir, 'ClientOnlyMods');
+            const serverDir = path.join(downloadDir, 'ServerOnlyMods');
+            const bothDir = path.join(downloadDir, 'BothClientAndServerMods');
+            const serverModsDir = path.join(SERVERS_DIR, 'Server2', 'mods');
+
+            [clientDir, serverDir, bothDir, serverModsDir].forEach(d => {
+                if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+            });
+
+            const clientOnlyList = [
+                'blur-', 'entity_model_features', 'entity_texture_features', 'health-indicator',
+                'immersivearmorhud', 'InventoryProfilesNext', 'iris-', 'ItemBorders',
+                'lambdynamiclights', 'libIPN', 'Measurements', 'moremousetweaks',
+                'MouseTweaks', 'PickUpNotifier', 'shulkerboxtooltip', 'skinlayers3d',
+                'smoothswapping', 'sodium-', 'yet_another_config_lib'
+            ];
+
+            const serverOnlyList = ['skinrestorer', 'villagernames'];
+
+            const files = fs.readdirSync(downloadDir).filter(f => f.endsWith('.jar'));
+            files.forEach(file => {
+                const srcPath = path.join(downloadDir, file);
+                const lower = file.toLowerCase();
+
+                let categoryDir = bothDir;
+                if (clientOnlyList.some(k => lower.includes(k.toLowerCase()))) {
+                    categoryDir = clientDir;
+                } else if (serverOnlyList.some(k => lower.includes(k.toLowerCase()))) {
+                    categoryDir = serverDir;
+                    try { fs.copyFileSync(srcPath, path.join(serverModsDir, file)); } catch(e) {}
+                } else {
+                    try { fs.copyFileSync(srcPath, path.join(categoryDir, file)); } catch(e) {}
+                }
+                try { fs.copyFileSync(srcPath, path.join(categoryDir, file)); } catch(e) {}
+            });
+        }
     } catch(e) {}
 
     server.listen(freePort, () => {

@@ -8,5 +8,6 @@ if not exist node_modules (
 )
 
 echo Starting Local Daemon Server...
+call node "%~dp0..\..\Servers\sync_server2_mods.js"
 call npm start
 pause

@@ -15,7 +15,7 @@ import Plugins from './Plugins';
 import Files from './Files';
 import Backups from './Backups';
 import Settings from './Settings';
-import WorldMap from './WorldMap';
+import BlueMap from './BlueMap';
 
 export default function Dashboard() {
   // Navigation & Settings State
@@ -442,8 +442,9 @@ export default function Dashboard() {
         );
       case 'map':
         return (
-          <WorldMap 
+          <BlueMap 
             serverId={selectedServerId}
+            activeServer={activeServerInfo}
             apiFetch={apiFetch}
             showToast={showToast}
           />
@@ -566,7 +567,7 @@ export default function Dashboard() {
             { id: 'players', label: 'Players Manager', icon: Users, badge: activeServerInfo?.onlinePlayers },
             { id: 'plugins', label: 'Plugins & Mods', icon: Puzzle },
             { id: 'files', label: 'File Explorer', icon: FolderTree },
-            { id: 'map', label: 'World Map & Seed', icon: Compass },
+            { id: 'map', label: '3D BlueMap', icon: Globe },
             { id: 'backups', label: 'Backups & Vault', icon: HardDriveDownload },
             { id: 'settings', label: 'Server Settings', icon: Sliders }
           ].map(nav => {
@@ -798,7 +799,7 @@ export default function Dashboard() {
             { id: 'players', label: 'Players', icon: Users },
             { id: 'plugins', label: 'Mods', icon: Puzzle },
             { id: 'files', label: 'Files', icon: FolderTree },
-            { id: 'map', label: 'Map', icon: Compass },
+            { id: 'map', label: '3D BlueMap', icon: Globe },
             { id: 'settings', label: 'Settings', icon: Sliders }
           ].map(item => {
             const Icon = item.icon;
