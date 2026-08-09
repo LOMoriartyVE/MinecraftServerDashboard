@@ -9,8 +9,11 @@ import {
 export default function BlueMap({ serverId, activeServer, daemonUrl, apiFetch, showToast }) {
   const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
 
-  // Mode: 'proxy' (HTTPS Tunneled via Daemon) or 'direct' (Direct http://localhost:port)
-  const [connectionMode, setConnectionMode] = useState(isHttpsPage ? 'proxy' : 'direct');
+  // Connection modes:
+  // 'proxy' -> Same-Origin Vercel Proxy (/api/proxy/bluemap/Server1/?daemonUrl=...) - NEVER blocked by frame options
+  // 'direct' -> Local Port (http://localhost:8100)
+  // 'tunnel' -> Direct Tunnel URL (https://...trycloudflare.com/bluemap/Server1/)
+  const [connectionMode, setConnectionMode] = useState('proxy');
   
   const getDefaultPort = (id) => {
     if (id === 'Server2' || id === 'server2') return '8101';
@@ -21,18 +24,25 @@ export default function BlueMap({ serverId, activeServer, daemonUrl, apiFetch, s
   const [customUrl, setCustomUrl] = useState('');
   const [iframeKey, setIframeKey] = useState(0);
   const [copied, setCopied] = useState(false);
-  const [isOnline, setIsOnline] = useState(null);
 
   useEffect(() => {
     setMapPort(getDefaultPort(serverId));
   }, [serverId]);
 
-  // Construct target iframe URL
   const cleanDaemon = (daemonUrl || 'http://localhost:3001').replace(/\/$/, '');
-  const proxiedUrl = `${cleanDaemon}/bluemap/${serverId || 'Server1'}/`;
-  const directUrl = `http://localhost:${mapPort}/`;
+  const targetServer = serverId || 'Server1';
 
-  const targetMapUrl = customUrl.trim() || (connectionMode === 'proxy' ? proxiedUrl : directUrl);
+  // Construct target iframe URL based on selected mode
+  const proxiedVercelUrl = `/api/proxy/bluemap/${targetServer}/?daemonUrl=${encodeURIComponent(cleanDaemon)}`;
+  const directTunnelUrl = `${cleanDaemon}/bluemap/${targetServer}/`;
+  const directPortUrl = `http://localhost:${mapPort}/`;
+
+  let targetMapUrl = customUrl.trim();
+  if (!targetMapUrl) {
+    if (connectionMode === 'proxy') targetMapUrl = proxiedVercelUrl;
+    else if (connectionMode === 'tunnel') targetMapUrl = directTunnelUrl;
+    else targetMapUrl = directPortUrl;
+  }
 
   const handleRefresh = () => {
     setIframeKey(prev => prev + 1);
@@ -40,14 +50,18 @@ export default function BlueMap({ serverId, activeServer, daemonUrl, apiFetch, s
   };
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(targetMapUrl);
+    const fullLink = targetMapUrl.startsWith('/') ? `${window.location.origin}${targetMapUrl}` : targetMapUrl;
+    navigator.clipboard.writeText(fullLink);
     setCopied(true);
     if (showToast) showToast('BlueMap URL copied to clipboard!', 'success');
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleOpenExternal = () => {
-    window.open(targetMapUrl, '_blank', 'noopener,noreferrer');
+    const externalLink = connectionMode === 'proxy' 
+      ? directTunnelUrl 
+      : (targetMapUrl.startsWith('/') ? `${window.location.origin}${targetMapUrl}` : targetMapUrl);
+    window.open(externalLink, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -69,10 +83,12 @@ export default function BlueMap({ serverId, activeServer, daemonUrl, apiFetch, s
               </span>
             </div>
             <p className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
-              <span>Server: <strong className="text-slate-200">{activeServer?.name || serverId || 'Server1'}</strong></span>
+              <span>Server: <strong className="text-slate-200">{activeServer?.name || targetServer}</strong></span>
               <span>•</span>
               <span className="font-mono text-[11px] text-slate-300">
-                Mode: <strong className="text-mcgreen-400">{connectionMode === 'proxy' ? 'HTTPS Daemon Proxy' : 'Direct Local Port'}</strong>
+                Mode: <strong className="text-mcgreen-400">
+                  {connectionMode === 'proxy' ? 'Vercel Same-Origin Proxy' : connectionMode === 'tunnel' ? 'Direct Tunnel' : 'Local Port'}
+                </strong>
               </span>
             </p>
           </div>
@@ -81,7 +97,7 @@ export default function BlueMap({ serverId, activeServer, daemonUrl, apiFetch, s
         {/* Right Side: URL Configurator & Actions */}
         <div className="flex flex-wrap items-center gap-2">
           
-          {/* Connection Mode Toggle (Proxy vs Direct) */}
+          {/* Connection Mode Selector */}
           <div className="flex items-center bg-obsidian-950 border border-obsidian-800 rounded-lg p-1 text-xs">
             <button
               onClick={() => { setConnectionMode('proxy'); setCustomUrl(''); }}
@@ -90,7 +106,16 @@ export default function BlueMap({ serverId, activeServer, daemonUrl, apiFetch, s
               }`}
             >
               <ShieldCheck className="w-3 h-3 text-emerald-400" />
-              <span>Proxy (HTTPS/Vercel)</span>
+              <span>Vercel Proxy</span>
+            </button>
+            <button
+              onClick={() => { setConnectionMode('tunnel'); setCustomUrl(''); }}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-mono transition-all flex items-center gap-1 ${
+                connectionMode === 'tunnel' && !customUrl ? 'bg-mcgreen-500/20 text-mcgreen-300 font-semibold border border-mcgreen-500/30' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Globe className="w-3 h-3 text-cyan-400" />
+              <span>Tunnel</span>
             </button>
             <button
               onClick={() => { setConnectionMode('direct'); setCustomUrl(''); }}
@@ -99,11 +124,11 @@ export default function BlueMap({ serverId, activeServer, daemonUrl, apiFetch, s
               }`}
             >
               <Link2 className="w-3 h-3 text-blue-400" />
-              <span>Direct (Port {mapPort})</span>
+              <span>Local Port</span>
             </button>
           </div>
 
-          {/* Server Port Switchers */}
+          {/* Server Port Switchers (for direct port mode) */}
           {connectionMode === 'direct' && (
             <div className="flex items-center bg-obsidian-950 border border-obsidian-800 rounded-lg p-1 text-xs">
               <button
@@ -166,29 +191,21 @@ export default function BlueMap({ serverId, activeServer, daemonUrl, apiFetch, s
           allowFullScreen
         />
 
-        {/* HELPFUL DIAGNOSTIC OVERLAY (FLOATING MINI CARD) */}
+        {/* HELPFUL DIAGNOSTIC OVERLAY */}
         <div className="absolute bottom-4 left-4 max-w-md bg-obsidian-900/95 backdrop-blur-md border border-obsidian-800 rounded-xl p-3.5 shadow-2xl z-20 text-xs">
           <div className="flex items-start gap-3">
-            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <AlertCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
             <div>
-              <h4 className="font-semibold text-slate-200 text-xs">BlueMap Connection Guide</h4>
+              <h4 className="font-semibold text-slate-200 text-xs">Vercel Same-Origin Proxy Active</h4>
               <p className="text-slate-400 mt-0.5 text-[11px]">
-                {isHttpsPage 
-                  ? "Vercel HTTPS detected: Currently using Daemon HTTPS Proxy to bypass browser mixed-content blocks."
-                  : "Using standard direct port access."}
+                Proxying BlueMap via Vercel Same-Origin removes X-Frame-Options and HTTPS security blocks.
               </p>
               <div className="flex items-center gap-2 mt-2">
                 <button 
                   onClick={handleOpenExternal} 
                   className="px-2.5 py-1 rounded bg-mcgreen-500/20 text-mcgreen-400 border border-mcgreen-500/30 hover:bg-mcgreen-500/30 transition-all font-mono text-[10px]"
                 >
-                  Open in New Window ↗
-                </button>
-                <button 
-                  onClick={() => setConnectionMode(prev => prev === 'proxy' ? 'direct' : 'proxy')}
-                  className="px-2.5 py-1 rounded bg-obsidian-800 text-slate-300 border border-obsidian-700 hover:bg-obsidian-700 transition-all font-mono text-[10px]"
-                >
-                  Switch Mode
+                  Open Direct Tab ↗
                 </button>
               </div>
             </div>

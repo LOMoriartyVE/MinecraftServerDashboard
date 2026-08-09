@@ -1,26 +1,31 @@
 import { NextResponse } from 'next/server';
 
 async function handleProxy(req) {
-  const targetUrl = req.headers.get('x-target-url') || process.env.NEXT_PUBLIC_DAEMON_URL;
+  const { searchParams, pathname } = new URL(req.url);
+  
+  // Extract target daemon URL from query param, header, or env var
+  const queryDaemonUrl = searchParams.get('daemonUrl');
+  const targetUrl = queryDaemonUrl || req.headers.get('x-target-url') || process.env.NEXT_PUBLIC_DAEMON_URL;
+  
   if (!targetUrl) {
-    return NextResponse.json({ error: 'Missing daemon URL. Please configure NEXT_PUBLIC_DAEMON_URL in Vercel or Settings.' }, { status: 400 });
+    return NextResponse.json({ error: 'Missing daemon URL. Please configure daemonUrl or NEXT_PUBLIC_DAEMON_URL.' }, { status: 400 });
   }
 
-  // Parse path and query parameters from the request
-  const { searchParams, pathname } = new URL(req.url);
-  // Get relative path after /api/proxy (e.g. /api/servers)
+  // Clean daemonUrl parameter from outgoing searchParams
+  const forwardParams = new URLSearchParams(searchParams);
+  forwardParams.delete('daemonUrl');
+
+  // Get relative path after /api/proxy (e.g. /bluemap/Server1/)
   const relativePath = pathname.replace(/^\/api\/proxy/, '');
   
   const finalUrl = new URL(relativePath, targetUrl);
-  searchParams.forEach((value, key) => {
+  forwardParams.forEach((value, key) => {
     finalUrl.searchParams.append(key, value);
   });
 
   const method = req.method;
   const headers = new Headers();
   
-  // Forward essential headers
-  headers.set('Content-Type', 'application/json');
   headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
   headers.set('bypass-tunnel-reminder', 'true');
   headers.set('Bypass-Tunnel-Reminder', 'true');
@@ -42,17 +47,22 @@ async function handleProxy(req) {
       next: { revalidate: 0 } // disable next.js fetch cache
     });
 
-    const contentType = response.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
-      const responseData = await response.json();
-      return NextResponse.json(responseData, { status: response.status });
-    } else {
-      const text = await response.text();
-      return NextResponse.json({ 
-        error: 'Target daemon endpoint returned non-JSON response (possibly tunnel landing page or offline)', 
-        status: response.status 
-      }, { status: 502 });
-    }
+    const responseBuffer = await response.arrayBuffer();
+    const resHeaders = new Headers();
+
+    const contentType = response.headers.get('content-type') || 'text/html; charset=utf-8';
+    resHeaders.set('Content-Type', contentType);
+    resHeaders.set('Access-Control-Allow-Origin', '*');
+    resHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    
+    // Explicitly delete any restrictive framing headers from upstream tunnels
+    resHeaders.delete('x-frame-options');
+    resHeaders.delete('content-security-policy');
+
+    return new NextResponse(responseBuffer, {
+      status: response.status,
+      headers: resHeaders
+    });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to proxy request', details: error.message }, { status: 502 });
   }

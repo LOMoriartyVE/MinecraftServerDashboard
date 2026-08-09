@@ -23,10 +23,15 @@ app.options('*', cors());
 app.use(express.json());
 
 // Proxy endpoint for BlueMap web server (bypasses browser mixed-content CORS blocks on HTTPS/Vercel)
-app.use('/bluemap/:serverId', (req, res) => {
-    const serverId = req.params.serverId || 'Server1';
+app.all(['/bluemap/:serverId', '/bluemap/:serverId/*'], (req, res) => {
+    const rawPath = req.originalUrl || req.url || '';
+    const match = rawPath.match(/^\/bluemap\/([^\/\?]+)(.*)$/);
+    const serverId = match ? match[1] : 'Server1';
+    let subPath = match ? match[2] : '/';
+    if (!subPath || subPath === '/') {
+        subPath = '/index.html';
+    }
     const port = (serverId.toLowerCase() === 'server2') ? 8101 : 8100;
-    const subPath = req.url === '/' ? '/index.html' : req.url;
     const targetUrl = `http://127.0.0.1:${port}${subPath}`;
 
     const clientReq = http.request(targetUrl, {
@@ -48,7 +53,7 @@ app.use('/bluemap/:serverId', (req, res) => {
                         <div>
                             <h2 style="color:#f59e0b;">BlueMap Web Server Offline</h2>
                             <p>Could not connect to BlueMap on 127.0.0.1:${port}.</p>
-                            <p style="font-size:12px; color:#64748b;">Ensure the Minecraft server is running and BlueMap mod is loaded.</p>
+                            <p style="font-size:12px; color:#64748b;">Ensure Minecraft server (${serverId}) is running and BlueMap mod is loaded.</p>
                         </div>
                     </body>
                 </html>
